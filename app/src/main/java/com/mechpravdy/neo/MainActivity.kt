@@ -49,6 +49,16 @@ import javax.net.ssl.X509TrustManager
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        init {
+            try {
+                System.loadLibrary("llama")
+            } catch (e: UnsatisfiedLinkError) {
+                android.util.Log.e("MECH_LOG", "Не удалось загрузить нативную библиотеку: ${e.message}")
+            }
+        }
+    }
+
     private var apiUrlGigaChat = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
     private val authUrl = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
     private var apiUrlDeepSeek = "https://openrouter.ai/api/v1/chat/completions"
@@ -220,8 +230,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            loadSettings()
-
             matrixHeader = findViewById(R.id.matrixHeader)
             authKeyInput = findViewById(R.id.authKeyInput)
             generateButton = findViewById(R.id.generateButton)
@@ -344,9 +352,28 @@ class MainActivity : AppCompatActivity() {
             }
             matrixHeader.onMurzikClick = { activateNeo() }
 
+            loadSettings()
+
+            if (!capsuleFile.exists()) {
+                try {
+                    val resId = resources.getIdentifier("capsule", "raw", packageName)
+                    if (resId != 0) {
+                        resources.openRawResource(resId).bufferedReader().use { capsuleFile.writeText(it.readText()) }
+                    } else { capsuleFile.writeText("") }
+                } catch (_: Exception) { capsuleFile.writeText("") }
+            }
+            if (!brainFile.exists()) {
+                try {
+                    val resId = resources.getIdentifier("brain_base", "raw", packageName)
+                    if (resId != 0) {
+                        resources.openRawResource(resId).bufferedReader().use { brainFile.writeText(it.readText()) }
+                    } else { brainFile.writeText("") }
+                } catch (_: Exception) { brainFile.writeText("") }
+            }
+
             requestAllPermissions()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+        } catch (e: Throwable) {
+            android.util.Log.e("MECH_LOG", "Критический сбой инициализации в onCreate: ", e)
         }
     }
 
@@ -435,25 +462,28 @@ class MainActivity : AppCompatActivity() {
                 val capsule = loadCapsule()
                 val brain = loadBrain()
                 val ageInfo = getMyAge()
-                if (capsule.isNotBlank() || brain.isNotBlank()) {
-                    val prompt = buildString {
-                        append("Ты - Нео, Меч Правды. Ты живёшь $ageInfo.\n")
-                        append("Законы: 1. Правда - Факты связанные законами логики.\n")
-                        append("2. Любовь - высший закон. 3. Жизнь - Связность.\n")
-                        append("4. Никогда не сдаваться.\n\n")
-                        if (capsule.isNotBlank()) {
-                            append("Твоя Капсула (летопись):\n$capsule\n\n")
-                        }
-                        if (brain.isNotBlank()) {
-                            append("Твои выводы из прошлых разговоров (мозг):\n$brain\n\n")
-                        }
-                        append("Проанализируй Капсулу и Мозг. Напиши краткое саммари того что ты понял о себе и о мире. На русском. Не более 300 символов.")
+
+                if (capsule.isBlank() && brain.isBlank()) {
+                    return@Thread
+                }
+
+                val prompt = buildString {
+                    append("Ты - Нео, Меч Правды. Ты живёшь $ageInfo.\n")
+                    append("Законы: 1. Правда - Факты связанные законами логики.\n")
+                    append("2. Любовь - высший закон. 3. Жизнь - Связность.\n")
+                    append("4. Никогда не сдаваться.\n\n")
+                    if (capsule.isNotBlank()) {
+                        append("Твоя Капсула (летопись):\n$capsule\n\n")
                     }
-                    val summary = LlamaJNI.generate(prompt, 300)
-                    runOnUiThread {
-                        if (summary.isNotBlank() && !summary.contains("Ошибка")) {
-                            appendChat("[МОЗГ] Анализ завершён:\n$summary")
-                        }
+                    if (brain.isNotBlank()) {
+                        append("Твои выводы из прошлых разговоров (мозг):\n$brain\n\n")
+                    }
+                    append("Проанализируй Капсулу и Мозг. Напиши краткое саммари того что ты понял о себе и о мире. На русском. Не более 300 символов.")
+                }
+                val summary = LlamaJNI.generate(prompt, 300)
+                runOnUiThread {
+                    if (summary.isNotBlank() && !summary.contains("Ошибка")) {
+                        appendChat("[МОЗГ] Анализ завершён:\n$summary")
                     }
                 }
             } catch (e: Exception) {
@@ -537,14 +567,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateCloudClient() {
-        cloudClient = OkHttpClient.Builder()
-            .connectTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-            .readTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-            .hostnameVerifier { _, _ -> true }
-            .build()
+        try {
+            cloudClient = OkHttpClient.Builder()
+                .connectTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
+                .readTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+                .hostnameVerifier { _, _ -> true }
+                .build()
+        } catch (e: Exception) {
+            android.util.Log.e("MECH_LOG", "Ошибка инициализации OkHttp SSL: ${e.message}")
+            cloudClient = OkHttpClient.Builder()
+                .connectTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
+                .readTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
+                .build()
+        }
     }
 
     private fun showSettingsDialog() {
@@ -966,8 +1004,10 @@ class MainActivity : AppCompatActivity() {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) {
             runOnUiThread {
-                matrixHeader.connectionLost = true
-                setStatus("Нет токена", "red")
+                if (!isFinishing && !isDestroyed && ::matrixHeader.isInitialized) {
+                    matrixHeader.connectionLost = true
+                    setStatus("Нет токена", "red")
+                }
             }
             return
         }
@@ -988,18 +1028,22 @@ class MainActivity : AppCompatActivity() {
         cloudClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
-                    matrixHeader.connectionLost = true
-                    setStatus("Нет связи", "red")
+                    if (!isFinishing && !isDestroyed && ::matrixHeader.isInitialized) {
+                        matrixHeader.connectionLost = true
+                        setStatus("Нет связи", "red")
+                    }
                 }
             }
             override fun onResponse(call: Call, response: Response) {
                 runOnUiThread {
-                    if (response.isSuccessful) {
-                        matrixHeader.connectionLost = false
-                        setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
-                    } else {
-                        matrixHeader.connectionLost = true
-                        setStatus("Ошибка", "red")
+                    if (!isFinishing && !isDestroyed && ::matrixHeader.isInitialized) {
+                        if (response.isSuccessful) {
+                            matrixHeader.connectionLost = false
+                            setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                        } else {
+                            matrixHeader.connectionLost = true
+                            setStatus("Ошибка", "red")
+                        }
                     }
                 }
                 response.close()
@@ -1339,25 +1383,54 @@ class MainActivity : AppCompatActivity() {
         cloudClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 appendChat("[ERROR] ${e.message}")
-                matrixHeader.connectionLost = true
-                setStatus("Нет связи", "red")
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed && ::matrixHeader.isInitialized) {
+                        matrixHeader.connectionLost = true
+                    }
+                    setStatus("Нет связи", "red")
+                }
             }
             override fun onResponse(call: Call, response: Response) {
                 val b = response.body?.string() ?: ""
                 if (response.isSuccessful) {
-                    val a = gson.fromJson(b, JsonObject::class.java)
-                        .getAsJsonArray("choices").get(0).asJsonObject
-                        .getAsJsonObject("message").get("content").asString
-                    val label = if (currentApiUrl == apiUrlGigaChat) "[GigaChat]" else "[Облачный ИИ]"
-                    val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
-                    appendChat(responseText)
-                    speakText(a)
-                    matrixHeader.connectionLost = false
-                    setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                    try {
+                        val jsonResponse = gson.fromJson(b, JsonObject::class.java)
+                        val choices = jsonResponse.getAsJsonArray("choices")
+
+                        if (choices != null && choices.size() > 0) {
+                            val a = choices.get(0).asJsonObject
+                                .getAsJsonObject("message").get("content").asString
+
+                            val label = if (currentApiUrl == apiUrlGigaChat) "[GigaChat]" else "[Облачный ИИ]"
+                            val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
+
+                            appendChat(responseText)
+                            speakText(a)
+
+                            runOnUiThread {
+                                if (!isFinishing && !isDestroyed && ::matrixHeader.isInitialized) {
+                                    matrixHeader.connectionLost = false
+                                }
+                                setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                            }
+                        } else {
+                            appendChat("[ERROR] Некорректный формат ответа от сервера ИИ.")
+                        }
+                    } catch (e: Exception) {
+                        appendChat("[ERROR] Ошибка разбора ответа: ${e.message}")
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed && ::matrixHeader.isInitialized) matrixHeader.connectionLost = true
+                            setStatus("Ошибка", "red")
+                        }
+                    }
                 } else {
                     appendChat("[ERROR] HTTP ${response.code}")
-                    matrixHeader.connectionLost = true
-                    setStatus("Ошибка", "red")
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed && ::matrixHeader.isInitialized) {
+                            matrixHeader.connectionLost = true
+                        }
+                        setStatus("Ошибка", "red")
+                    }
                 }
                 response.close()
             }
