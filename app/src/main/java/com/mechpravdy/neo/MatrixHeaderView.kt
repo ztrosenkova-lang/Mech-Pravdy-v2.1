@@ -100,8 +100,10 @@ class MatrixHeaderView @JvmOverloads constructor(
     private val handler = Handler(Looper.getMainLooper())
     private val updateRunnable = object : Runnable {
         override fun run() {
-            invalidate()
-            handler.postDelayed(this, 50)
+            if (isAttachedToWindow) {
+                invalidate()
+                handler.postDelayed(this, 50)
+            }
         }
     }
     
@@ -109,25 +111,45 @@ class MatrixHeaderView @JvmOverloads constructor(
     private val memoryHandler = Handler(Looper.getMainLooper())
     private val memoryUpdateRunnable = object : Runnable {
         override fun run() {
-            val runtime = Runtime.getRuntime()
-            val javaUsed = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
-            val javaMax = runtime.maxMemory() / (1024 * 1024)
-            
-            val nativeHeapSize = Debug.getNativeHeapSize() / (1024 * 1024)
-            val nativeHeapFree = Debug.getNativeHeapFreeSize() / (1024 * 1024)
-            val nativeUsed = nativeHeapSize - nativeHeapFree
-            
-            val totalUsed = javaUsed + nativeUsed
-            
-            memoryText = "$javaUsed+$nativeUsed/$javaMax MB"
-            invalidate()
-            memoryHandler.postDelayed(this, 1000)
+            if (isAttachedToWindow) {
+                val runtime = Runtime.getRuntime()
+                val javaUsed = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
+                val javaMax = runtime.maxMemory() / (1024 * 1024)
+                
+                val nativeHeapSize = Debug.getNativeHeapSize() / (1024 * 1024)
+                val nativeHeapFree = Debug.getNativeHeapFreeSize() / (1024 * 1024)
+                val nativeUsed = nativeHeapSize - nativeHeapFree
+                
+                val totalUsed = javaUsed + nativeUsed
+                
+                memoryText = "$javaUsed+$nativeUsed/$javaMax MB"
+                invalidate()
+                memoryHandler.postDelayed(this, 1000)
+            }
         }
     }
 
     init {
+        // Анимация и мониторинг запускаются только после прикрепления к окну
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
         startAnimation()
         memoryHandler.post(memoryUpdateRunnable)
+        // Загружаем изображение Мурзика только когда View прикреплено к окну
+        try {
+            murzikBitmap = BitmapFactory.decodeResource(resources, R.drawable.murzik)
+        } catch (_: Exception) {}
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        stopAnimation()
+        stopMemoryMonitoring()
+        // Освобождаем bitmap
+        murzikBitmap?.recycle()
+        murzikBitmap = null
     }
     
     fun stopMemoryMonitoring() {
@@ -135,6 +157,7 @@ class MatrixHeaderView @JvmOverloads constructor(
     }
 
     fun startAnimation() {
+        handler.removeCallbacks(updateRunnable)
         handler.post(updateRunnable)
     }
 
@@ -151,7 +174,7 @@ class MatrixHeaderView @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val desiredHeight = (105 * resources.displayMetrics.density).toInt()
+        val desiredHeight = (125 * resources.displayMetrics.density).toInt()
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(desiredHeight, MeasureSpec.EXACTLY))
     }
 
@@ -219,9 +242,7 @@ class MatrixHeaderView @JvmOverloads constructor(
             murzikRect.bottom + 6f + memoryHeight
         )
 
-        try {
-            murzikBitmap = BitmapFactory.decodeResource(resources, R.drawable.murzik)
-        } catch (_: Exception) {}
+        // Загрузка изображения Мурзика перенесена в onAttachedToWindow
     }
 
     private fun generateLine() = if (Random.nextFloat() < 0.15f) { words[Random.nextInt(words.size)] } else { CharArray(columns) { if (Random.nextFloat() > 0.5f) '0' else '1' }.joinToString("") }
