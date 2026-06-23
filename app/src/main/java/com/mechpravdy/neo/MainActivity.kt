@@ -51,6 +51,7 @@ class MainActivity : ReactActivity() {
 
     companion object {
         private const val OVERLAY_PERMISSION_REQUEST_CODE = 1001
+        private const val TAG = "MechPravdy"
     }
 
     private var apiUrlGigaChat = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
@@ -109,13 +110,18 @@ class MainActivity : ReactActivity() {
     private var tts: TextToSpeech? = null
 
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
-                messageInput.setText(it)
-                sendMessage()
+        try {
+            if (result.resultCode == RESULT_OK) {
+                result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
+                    messageInput.setText(it)
+                    sendMessage()
+                }
             }
+        } catch (e: Exception) {
+            appendChat("[ERROR] ${e.message}")
         }
     }
+    
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         try {
             if (result.resultCode == RESULT_OK) {
@@ -132,65 +138,77 @@ class MainActivity : ReactActivity() {
     }
     
     private val galleryLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val data: Intent? = result.data
-            val imageUri: Uri? = data?.data
-            if (imageUri != null) {
-                try {
-                    val inputStream = contentResolver.openInputStream(imageUri)
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
-                    inputStream?.close()
-                    if (bitmap != null) {
-                        analyzePhoto(bitmap)
-                    } else {
-                        appendChat("[ГАЛЕРЕЯ] Не удалось загрузить фото")
+        try {
+            if (result.resultCode == RESULT_OK) {
+                val data: Intent? = result.data
+                val imageUri: Uri? = data?.data
+                if (imageUri != null) {
+                    try {
+                        val inputStream = contentResolver.openInputStream(imageUri)
+                        val bitmap = BitmapFactory.decodeStream(inputStream)
+                        inputStream?.close()
+                        if (bitmap != null) {
+                            analyzePhoto(bitmap)
+                        } else {
+                            appendChat("[ГАЛЕРЕЯ] Не удалось загрузить фото")
+                        }
+                    } catch (e: Exception) {
+                        appendChat("[ГАЛЕРЕЯ] Ошибка: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    appendChat("[ГАЛЕРЕЯ] Ошибка: ${e.message}")
                 }
             }
+        } catch (e: Exception) {
+            appendChat("[ERROR] ${e.message}")
         }
     }
     
     private val galleryLauncherForOCR = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val data: Intent? = result.data
-            val imageUri: Uri? = data?.data
-            if (imageUri != null) {
-                try {
-                    val inputStream = contentResolver.openInputStream(imageUri)
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
-                    inputStream?.close()
-                    if (bitmap != null) {
-                        recognizeTextFromBitmap(bitmap)
-                    } else {
-                        appendChat("[OCR] Не удалось загрузить фото")
+        try {
+            if (result.resultCode == RESULT_OK) {
+                val data: Intent? = result.data
+                val imageUri: Uri? = data?.data
+                if (imageUri != null) {
+                    try {
+                        val inputStream = contentResolver.openInputStream(imageUri)
+                        val bitmap = BitmapFactory.decodeStream(inputStream)
+                        inputStream?.close()
+                        if (bitmap != null) {
+                            recognizeTextFromBitmap(bitmap)
+                        } else {
+                            appendChat("[OCR] Не удалось загрузить фото")
+                        }
+                    } catch (e: Exception) {
+                        appendChat("[OCR] Ошибка: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    appendChat("[OCR] Ошибка: ${e.message}")
                 }
             }
+        } catch (e: Exception) {
+            appendChat("[ERROR] ${e.message}")
         }
     }
 
     private val modelFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            val modelsDir = File(filesDir, "models")
-            if (!modelsDir.exists()) modelsDir.mkdirs()
-            val modelFile = File(modelsDir, "local_model.gguf")
-            try {
-                contentResolver.openInputStream(uri)?.use { input ->
-                    modelFile.outputStream().use { output ->
-                        input.copyTo(output)
+        try {
+            if (uri != null) {
+                val modelsDir = File(filesDir, "models")
+                if (!modelsDir.exists()) modelsDir.mkdirs()
+                val modelFile = File(modelsDir, "local_model.gguf")
+                try {
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        modelFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                    val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
+                    localModelPath = modelFile.absolutePath
+                    loadLocalModel()
+                } catch (e: Exception) {
+                    appendChat("[МОЗГ] Ошибка копирования файла: ${e.message}")
                 }
-                val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
-                localModelPath = modelFile.absolutePath
-                loadLocalModel()
-            } catch (e: Exception) {
-                appendChat("[МОЗГ] Ошибка копирования файла: ${e.message}")
             }
+        } catch (e: Exception) {
+            appendChat("[ERROR] ${e.message}")
         }
     }
 
@@ -199,16 +217,34 @@ class MainActivity : ReactActivity() {
         override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
         override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
     })
-    private val sslContext = SSLContext.getInstance("TLS").apply { init(null, trustAllCerts, SecureRandom()) }
     
-    private var cloudClient = OkHttpClient.Builder()
-        .connectTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-        .readTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-        .hostnameVerifier { _, _ -> true }
-        .build()
+    private val sslContext by lazy {
+        try {
+            SSLContext.getInstance("TLS").apply { init(null, trustAllCerts, SecureRandom()) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    private var cloudClient: OkHttpClient? = null
+    
+    private fun getCloudClient(): OkHttpClient {
+        if (cloudClient == null) {
+            val builder = OkHttpClient.Builder()
+                .connectTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
+                .readTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+            
+            if (sslContext != null) {
+                builder.sslSocketFactory(sslContext!!.socketFactory, trustAllCerts[0] as X509TrustManager)
+                builder.hostnameVerifier { _, _ -> true }
+            }
+            
+            cloudClient = builder.build()
+        }
+        return cloudClient!!
+    }
     
     private val gson = Gson()
 
@@ -225,64 +261,109 @@ class MainActivity : ReactActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(null)
         try {
-            window.statusBarColor = Color.parseColor("#1A8A2E")
-            setContentView(R.layout.activity_main)
-
-            tts = TextToSpeech(this) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    tts?.setLanguage(Locale("ru", "RU"))
-                }
+            // Устанавливаем базовый цвет статус-бара с безопасным значением
+            try {
+                window.statusBarColor = Color.parseColor("#1A8A2E")
+            } catch (e: Exception) {
+                // Игнорируем ошибку цвета
+            }
+            
+            // Проверяем, существует ли layout
+            try {
+                setContentView(R.layout.activity_main)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Ошибка загрузки интерфейса: ${e.message}", Toast.LENGTH_LONG).show()
+                finish()
+                return
             }
 
-            // Загружаем нативную библиотеку
-            if (!LlamaJNI.isLoaded()) {
-                appendChat("[МОЗГ] Ошибка загрузки нативной библиотеки")
-            } else {
-                appendChat("[МОЗГ] Нативная библиотека загружена")
+            // Инициализация TTS с защитой
+            try {
+                tts = TextToSpeech(this) { status ->
+                    if (status == TextToSpeech.SUCCESS) {
+                        try {
+                            tts?.setLanguage(Locale("ru", "RU"))
+                        } catch (e: Exception) {
+                            // Игнорируем ошибку языка
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // TTS не критичен
+            }
+
+            // Загружаем нативную библиотеку с защитой
+            try {
+                if (!LlamaJNI.isLoaded()) {
+                    appendChat("[МОЗГ] Ошибка загрузки нативной библиотеки")
+                } else {
+                    appendChat("[МОЗГ] Нативная библиотека загружена")
+                }
+            } catch (e: Exception) {
+                appendChat("[МОЗГ] Библиотека LlamaJNI недоступна")
             }
             
             loadSettings()
             
-            matrixHeader = findViewById(R.id.matrixHeader)
-            authKeyInput = findViewById(R.id.authKeyInput)
-            generateButton = findViewById(R.id.generateButton)
-            tokenInput = findViewById(R.id.tokenInput)
-            messageInput = findViewById(R.id.messageInput)
-            sendButton = findViewById(R.id.sendButton)
-            voiceButton = findViewById(R.id.voiceButton)
-            cameraButton = findViewById(R.id.cameraButton)
-            checkButton = findViewById(R.id.checkButton)
-            capsuleButton = findViewById(R.id.capsuleButton)
-            attachButton = findViewById(R.id.attachButton)
-            clearTokenButton = findViewById(R.id.clearTokenButton)
-            chatOutput = findViewById(R.id.chatOutput)
-            statusText = findViewById(R.id.statusText)
-            statusDot = findViewById(R.id.statusDot)
-            chatScrollView = findViewById(R.id.chatScrollView)
-
-            matrixHeader.onNeoClick = { switchToGigaChat() }
-            matrixHeader.onLocalClick = { switchToDeepSeek() }
-            matrixHeader.onLocalRowClick = {
-                val options = arrayOf("PocketPal AI", "AboDeLLM")
-                AlertDialog.Builder(this)
-                    .setTitle("Запустить локальный ИИ")
-                    .setItems(options) { _, which ->
-                        when (which) {
-                            0 -> launchExternalApp("com.pocketpalai", "com.pocketpal.MainActivity")
-                            1 -> launchExternalApp("com.tricenc.abodellm", "com.tricenc.abodellm.MainActivity")
-                        }
-                    }
-                    .show()
+            // Инициализация UI с проверками
+            try {
+                matrixHeader = findViewById(R.id.matrixHeader)
+                authKeyInput = findViewById(R.id.authKeyInput)
+                generateButton = findViewById(R.id.generateButton)
+                tokenInput = findViewById(R.id.tokenInput)
+                messageInput = findViewById(R.id.messageInput)
+                sendButton = findViewById(R.id.sendButton)
+                voiceButton = findViewById(R.id.voiceButton)
+                cameraButton = findViewById(R.id.cameraButton)
+                checkButton = findViewById(R.id.checkButton)
+                capsuleButton = findViewById(R.id.capsuleButton)
+                attachButton = findViewById(R.id.attachButton)
+                clearTokenButton = findViewById(R.id.clearTokenButton)
+                chatOutput = findViewById(R.id.chatOutput)
+                statusText = findViewById(R.id.statusText)
+                statusDot = findViewById(R.id.statusDot)
+                chatScrollView = findViewById(R.id.chatScrollView)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Ошибка инициализации UI: ${e.message}", Toast.LENGTH_LONG).show()
+                return
             }
-            matrixHeader.onHelpClick = { showHelpDialog() }
-            matrixHeader.onClearClick = { clearChat() }
-            matrixHeader.onExitClick = { deactivateNeo() }
-            matrixHeader.onMenuClick = { showSettingsDialog() }
-            matrixHeader.setOnTouchListener { _, event -> if (event.action == MotionEvent.ACTION_DOWN) { matrixHeader.handleTouch(event.x, event.y) }; true }
+
+            // Настройка MatrixHeader с проверками
+            try {
+                matrixHeader.onNeoClick = { switchToGigaChat() }
+                matrixHeader.onLocalClick = { switchToDeepSeek() }
+                matrixHeader.onLocalRowClick = {
+                    val options = arrayOf("PocketPal AI", "AboDeLLM")
+                    AlertDialog.Builder(this)
+                        .setTitle("Запустить локальный ИИ")
+                        .setItems(options) { _, which ->
+                            when (which) {
+                                0 -> launchExternalApp("com.pocketpalai", "com.pocketpal.MainActivity")
+                                1 -> launchExternalApp("com.tricenc.abodellm", "com.tricenc.abodellm.MainActivity")
+                            }
+                        }
+                        .show()
+                }
+                matrixHeader.onHelpClick = { showHelpDialog() }
+                matrixHeader.onClearClick = { clearChat() }
+                matrixHeader.onExitClick = { deactivateNeo() }
+                matrixHeader.onMenuClick = { showSettingsDialog() }
+                matrixHeader.setOnTouchListener { _, event -> 
+                    if (event.action == MotionEvent.ACTION_DOWN) { 
+                        matrixHeader.handleTouch(event.x, event.y) 
+                    }
+                    true 
+                }
+            } catch (e: Exception) {
+                // Продолжаем без header если ошибка
+            }
 
             val savedMemory = loadMemory()
-            if (savedMemory.isNotBlank()) { chatOutput.setText(savedMemory) }
+            if (savedMemory.isNotBlank()) { 
+                chatOutput.setText(savedMemory) 
+            }
 
+            // Настройка кнопок с защитой
             generateButton.setOnClickListener { hideKeyboard(); generateToken() }
             clearTokenButton.setOnClickListener { hideKeyboard(); authKeyInput.setText(""); tokenInput.setText(""); appendChat("[СИСТЕМА] Поля очищены.") }
             sendButton.setOnClickListener { hideKeyboard(); sendMessage() }
@@ -302,64 +383,175 @@ class MainActivity : ReactActivity() {
                     .show()
             }
             
-            // ===== НОВЫЙ ОБРАБОТЧИК КНОПКИ МОЗГ =====
+            // ===== КРИТИЧЕСКИ ВАЖНЫЙ ОБРАБОТЧИК КНОПКИ МОЗГ =====
             checkButton.setOnClickListener {
                 hideKeyboard()
                 
-                // Проверяем разрешение на рисование поверх других окон
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    if (!Settings.canDrawOverlays(this)) {
+                // Проверяем, загружена ли локальная модель
+                try {
+                    if (LlamaJNI.isModelLoaded()) {
+                        // Модель загружена - выгружаем
+                        unloadLocalModel()
+                        return@setOnClickListener
+                    }
+                } catch (e: Exception) {
+                    // Продолжаем - возможно, модель не загружена
+                }
+                
+                // Пытаемся запустить плавающее окно
+                launchBrainFloatingWindow()
+            }
+            
+            capsuleButton.setOnClickListener { hideKeyboard(); requestPassword { showCapsuleDialog() } }
+            
+            try {
+                matrixHeader.onMurzikClick = { activateNeo() }
+            } catch (e: Exception) {
+                // Игнорируем если header не поддерживает
+            }
+
+            updateCheckButtonState()
+            requestAllPermissions()
+            
+            // Проверяем разрешение при запуске и показываем подсказку
+            checkOverlayPermissionOnStart()
+            
+        } catch (e: Exception) { 
+            Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // ===== НОВЫЙ МЕТОД ДЛЯ КРАСИВОГО ЗАПРОСА РАЗРЕШЕНИЯ НА ОТОБРАЖЕНИЕ ПОВЕРХ ДРУГИХ ОКОН =====
+    private fun checkOverlayPermissionOnStart() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                // Показываем информативный диалог при первом запуске
+                AlertDialog.Builder(this)
+                    .setTitle("⚙️ Важное разрешение")
+                    .setMessage(
+                        "Для работы плавающего окна «МОЗГ» необходимо разрешение «Отображение поверх других окон».\n\n" +
+                        "🔹 Это стандартное разрешение Android\n" +
+                        "🔹 Без него окно МОЗГА будет сворачиваться в фон\n" +
+                        "🔹 Вы сможете изменить это в любое время в Настройках\n\n" +
+                        "Открыть настройки разрешений?"
+                    )
+                    .setPositiveButton("Открыть настройки") { _, _ ->
+                        requestOverlayPermission()
+                    }
+                    .setNegativeButton("Позже") { _, _ ->
+                        appendChat("[МОЗГ] Разрешение не предоставлено. Окно будет сворачиваться.")
+                    }
+                    .setCancelable(false)
+                    .show()
+            }
+        }
+    }
+
+    // ===== МЕТОД ДЛЯ ЗАПРОСА РАЗРЕШЕНИЯ =====
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                appendChat("[МОЗГ] Открываю настройки разрешений...")
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivityForResult(intent, OVERLAY_PERMISSION_REQUEST_CODE)
+            } else {
+                // Разрешение уже есть
+                appendChat("[МОЗГ] Разрешение уже предоставлено ✓")
+            }
+        }
+    }
+
+    // ===== МЕТОД ДЛЯ ЗАПУСКА ПЛАВАЮЩЕГО ОКНА С ПРОВЕРКОЙ =====
+    private fun launchBrainFloatingWindow() {
+        // Проверяем разрешение на рисование поверх других окон
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                // Разрешения нет - показываем красивый диалог
+                AlertDialog.Builder(this)
+                    .setTitle("⚙️ Требуется разрешение")
+                    .setMessage(
+                        "Для работы плавающего окна «МОЗГ» необходимо включить " +
+                        "«Отображение поверх других окон» в настройках.\n\n" +
+                        "Это безопасное системное разрешение, которое позволяет " +
+                        "окну МОЗГА оставаться видимым при работе с другими приложениями.\n\n" +
+                        "Открыть настройки?"
+                    )
+                    .setPositiveButton("Открыть настройки") { _, _ ->
                         val intent = Intent(
                             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                             Uri.parse("package:$packageName")
                         )
                         startActivityForResult(intent, OVERLAY_PERMISSION_REQUEST_CODE)
-                        appendChat("[МОЗГ] Требуется разрешение для плавающего окна")
-                        return@setOnClickListener
+                        appendChat("[МОЗГ] Перехожу в настройки разрешений...")
                     }
-                }
-                
-                // Запускаем плавающее React Native окно
-                val intent = Intent(this, BrainFloatingWindow::class.java)
-                startActivity(intent)
-                appendChat("[МОЗГ] Окно МОЗГА активировано")
+                    .setNegativeButton("Отмена") { _, _ ->
+                        appendChat("[МОЗГ] Запуск отменён. Предоставьте разрешение в настройках.")
+                    }
+                    .show()
+                return
             }
-            
-            capsuleButton.setOnClickListener { hideKeyboard(); requestPassword { showCapsuleDialog() } }
-            matrixHeader.onMurzikClick = { activateNeo() }
-
-            updateCheckButtonState()
-
-            requestAllPermissions()
-        } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
+        }
+        
+        // Разрешение есть - запускаем плавающее окно
+        try {
+            val intent = Intent(this, BrainFloatingWindow::class.java)
+            startActivity(intent)
+            appendChat("[МОЗГ] Окно МОЗГА активировано ✓")
+        } catch (e: Exception) {
+            appendChat("[МОЗГ] Ошибка запуска окна: ${e.message}")
+        }
     }
 
     // ===== ОБРАБОТЧИК РЕЗУЛЬТАТА РАЗРЕШЕНИЯ =====
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == OVERLAY_PERMISSION_REQUEST_CODE) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (Settings.canDrawOverlays(this)) {
-                    appendChat("[МОЗГ] Разрешение получено. Запускаю окно...")
-                    val intent = Intent(this, BrainFloatingWindow::class.java)
-                    startActivity(intent)
-                } else {
-                    appendChat("[МОЗГ] Разрешение не получено. Повторите попытку.")
+        try {
+            if (requestCode == OVERLAY_PERMISSION_REQUEST_CODE) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    if (Settings.canDrawOverlays(this)) {
+                        appendChat("[МОЗГ] ✅ Разрешение получено! Запускаю окно...")
+                        // Автоматически запускаем окно после получения разрешения
+                        val intent = Intent(this, BrainFloatingWindow::class.java)
+                        startActivity(intent)
+                    } else {
+                        appendChat("[МОЗГ] ❌ Разрешение не получено. Окно будет сворачиваться.")
+                        // Показываем инструкцию как включить вручную
+                        AlertDialog.Builder(this)
+                            .setTitle("Как включить разрешение")
+                            .setMessage(
+                                "1. Откройте Настройки телефона\n" +
+                                "2. Найдите «Специальные возможности» или «Другие настройки»\n" +
+                                "3. Выберите «Отображение поверх других окон»\n" +
+                                "4. Найдите «Меч Правды» в списке\n" +
+                                "5. Включите тумблер"
+                            )
+                            .setPositiveButton("Понятно", null)
+                            .show()
+                    }
                 }
             }
+        } catch (e: Exception) {
+            appendChat("[ERROR] ${e.message}")
         }
     }
 
     private fun updateCheckButtonState() {
         runOnUiThread {
-            if (LlamaJNI.isModelLoaded()) {
-                checkButton.text = "ВЫГРУЗИТЬ"
-                checkButton.setBackgroundColor(Color.parseColor("#FF6600"))
-                checkButton.setTextColor(Color.WHITE)
-            } else {
-                checkButton.text = "МОЗГ"
-                checkButton.setBackgroundColor(Color.parseColor("#21A038"))
-                checkButton.setTextColor(Color.WHITE)
+            try {
+                if (LlamaJNI.isModelLoaded()) {
+                    checkButton.text = "ВЫГРУЗИТЬ"
+                    checkButton.setBackgroundColor(Color.parseColor("#FF6600"))
+                    checkButton.setTextColor(Color.WHITE)
+                } else {
+                    checkButton.text = "МОЗГ"
+                    checkButton.setBackgroundColor(Color.parseColor("#21A038"))
+                    checkButton.setTextColor(Color.WHITE)
+                }
+            } catch (e: Exception) {
+                // Игнорируем ошибки UI
             }
         }
     }
@@ -376,7 +568,11 @@ class MainActivity : ReactActivity() {
     }
 
     private fun openModelFilePicker() {
-        modelFileLauncher.launch("*/*")
+        try {
+            modelFileLauncher.launch("*/*")
+        } catch (e: Exception) {
+            appendChat("[МОЗГ] Ошибка выбора файла: ${e.message}")
+        }
     }
 
     private fun loadLocalModel() {
@@ -484,62 +680,70 @@ class MainActivity : ReactActivity() {
     }
 
     private fun openGalleryForOCR() {
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        galleryLauncherForOCR.launch(intent)
+        try {
+            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            galleryLauncherForOCR.launch(intent)
+        } catch (e: Exception) {
+            appendChat("[OCR] Ошибка открытия галереи: ${e.message}")
+        }
     }
 
     private fun recognizeTextFromBitmap(bitmap: Bitmap) {
         setStatus("Распознаю текст...", "yellow")
         
-        val recognizer = TextRecognition.getClient(
-            ChineseTextRecognizerOptions.Builder().build()
-        )
-        
-        val image = InputImage.fromBitmap(bitmap, 0)
-        
-        recognizer.process(image)
-            .addOnSuccessListener { visionText ->
-                val recognizedText = visionText.text
-                if (recognizedText.isNotEmpty()) {
-                    appendChat("[ТЕКСТ С ФОТО] $recognizedText")
-                    messageInput.setText(recognizedText)
-                } else {
-                    appendChat("[ТЕКСТ С ФОТО] Текст не найден")
+        try {
+            val recognizer = TextRecognition.getClient(
+                ChineseTextRecognizerOptions.Builder().build()
+            )
+            
+            val image = InputImage.fromBitmap(bitmap, 0)
+            
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    val recognizedText = visionText.text
+                    if (recognizedText.isNotEmpty()) {
+                        appendChat("[ТЕКСТ С ФОТО] $recognizedText")
+                        messageInput.setText(recognizedText)
+                    } else {
+                        appendChat("[ТЕКСТ С ФОТО] Текст не найден")
+                    }
+                    setStatus("Готов", "green")
                 }
-                setStatus("Готов", "green")
-            }
-            .addOnFailureListener { e ->
-                appendChat("[ОШИБКА] Распознавание текста: ${e.message}")
-                setStatus("Ошибка", "red")
-            }
+                .addOnFailureListener { e ->
+                    appendChat("[ОШИБКА] Распознавание текста: ${e.message}")
+                    setStatus("Ошибка", "red")
+                }
+        } catch (e: Exception) {
+            appendChat("[OCR] Ошибка: ${e.message}")
+            setStatus("Ошибка", "red")
+        }
     }
 
     private fun loadSettings() {
-        val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
-        cloudTimeout = prefs.getInt("cloud_timeout", 300)
-        maxTokens = prefs.getInt("max_tokens", 1000)
-        temperature = prefs.getFloat("temperature", 0.7f)
-        password = prefs.getString("password", "связность") ?: "связность"
-        
-        val savedGigaChatUrl = prefs.getString("giga_chat_url", null)
-        if (savedGigaChatUrl != null) apiUrlGigaChat = savedGigaChatUrl
-        val savedDeepSeekUrl = prefs.getString("deep_seek_url", null)
-        if (savedDeepSeekUrl != null) apiUrlDeepSeek = savedDeepSeekUrl
-        val savedCloudModel = prefs.getString("cloud_model", null)
-        if (savedCloudModel != null) modelCloud = savedCloudModel
-        
-        updateCloudClient()
+        try {
+            val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
+            cloudTimeout = prefs.getInt("cloud_timeout", 300)
+            maxTokens = prefs.getInt("max_tokens", 1000)
+            temperature = prefs.getFloat("temperature", 0.7f)
+            password = prefs.getString("password", "связность") ?: "связность"
+            
+            val savedGigaChatUrl = prefs.getString("giga_chat_url", null)
+            if (savedGigaChatUrl != null) apiUrlGigaChat = savedGigaChatUrl
+            val savedDeepSeekUrl = prefs.getString("deep_seek_url", null)
+            if (savedDeepSeekUrl != null) apiUrlDeepSeek = savedDeepSeekUrl
+            val savedCloudModel = prefs.getString("cloud_model", null)
+            if (savedCloudModel != null) modelCloud = savedCloudModel
+        } catch (e: Exception) {
+            // Используем значения по умолчанию
+        }
     }
     
     private fun updateCloudClient() {
-        cloudClient = OkHttpClient.Builder()
-            .connectTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-            .readTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-            .hostnameVerifier { _, _ -> true }
-            .build()
+        try {
+            cloudClient = null // Сбрасываем для пересоздания
+        } catch (e: Exception) {
+            // Игнорируем
+        }
     }
 
     private fun showSettingsDialog() {
@@ -678,8 +882,12 @@ class MainActivity : ReactActivity() {
     }
 
     private fun openGallery() {
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        galleryLauncher.launch(intent)
+        try {
+            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            galleryLauncher.launch(intent)
+        } catch (e: Exception) {
+            appendChat("[ГАЛЕРЕЯ] Ошибка: ${e.message}")
+        }
     }
 
     private fun textModel(): String {
@@ -697,8 +905,12 @@ class MainActivity : ReactActivity() {
     }
 
     private fun scrollChatToBottom() {
-        chatScrollView.post {
-            chatScrollView.fullScroll(View.FOCUS_DOWN)
+        try {
+            chatScrollView.post {
+                chatScrollView.fullScroll(View.FOCUS_DOWN)
+            }
+        } catch (e: Exception) {
+            // Игнорируем ошибки скролла
         }
     }
 
@@ -787,26 +999,46 @@ class MainActivity : ReactActivity() {
     }
 
     private fun requestAllPermissions() {
-        val permissions = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.CAMERA)
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_MEDIA_AUDIO)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        try {
+            val permissions = mutableListOf<String>()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.CAMERA)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_MEDIA_AUDIO)
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+            if (permissions.isNotEmpty()) ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
+        } catch (e: Exception) {
+            // Продолжаем без разрешений
         }
-        if (permissions.isNotEmpty()) ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
     }
 
-    override fun onPause() { super.onPause(); saveMemory(chatOutput.text.toString()) }
+    override fun onPause() { 
+        super.onPause()
+        try {
+            saveMemory(chatOutput.text.toString()) 
+        } catch (e: Exception) {
+            // Игнорируем
+        }
+    }
+    
     override fun onDestroy() {
         super.onDestroy()
-        LlamaJNI.unloadModel()
-        tts?.stop()
-        tts?.shutdown()
+        try {
+            LlamaJNI.unloadModel()
+        } catch (e: Exception) {
+            // Игнорируем
+        }
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (e: Exception) {
+            // Игнорируем
+        }
     }
 
     private fun loadMemory(): String = try { if (memoryFile.exists()) memoryFile.readText() else "" } catch (e: Exception) { "" }
@@ -855,9 +1087,24 @@ class MainActivity : ReactActivity() {
         }
         val request = Request.Builder().url(currentApiUrl)
         request.header("Authorization", "Bearer $token")
-        cloudClient.newCall(request.post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()).enqueue(object : Callback {
+        getCloudClient().newCall(request.post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { appendChat("[МОЗГ] Ошибка: ${e.message}"); setStatus("Готов", "green") }
-            override fun onResponse(call: Call, response: Response) { val b = response.body?.string() ?: ""; if (response.isSuccessful) { val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString; saveBrain(a); appendChat("[МОЗГ] Запомнил:\n$a") } else { appendChat("[МОЗГ] Ошибка HTTP ${response.code}") }; setStatus("Готов", "green"); response.close() }
+            override fun onResponse(call: Call, response: Response) { 
+                try {
+                    val b = response.body?.string() ?: ""
+                    if (response.isSuccessful) { 
+                        val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString
+                        saveBrain(a)
+                        appendChat("[МОЗГ] Запомнил:\n$a") 
+                    } else { 
+                        appendChat("[МОЗГ] Ошибка HTTP ${response.code}") 
+                    }
+                } catch (e: Exception) {
+                    appendChat("[МОЗГ] Ошибка обработки ответа: ${e.message}")
+                }
+                setStatus("Готов", "green")
+                response.close() 
+            }
         })
     }
 
@@ -904,308 +1151,21 @@ class MainActivity : ReactActivity() {
 4. После загрузки кнопка станет оранжевой и сменит текст на ВЫГРУЗИТЬ.
 5. Нажмите ВЫГРУЗИТЬ, чтобы освободить память.
 
-=== ВАЖНО: ИСТОРИЯ ЧАТА ===
-Локальная и облачные модели ВИДЯТ всю историю чата.
-Вы можете попросить: "посмотри вверху" или "вспомни, что мы обсуждали".
-Модели прочитают всё, что было до этого.
+=== ВАЖНО: ПЛАВАЮЩЕЕ ОКНО МОЗГ ===
+Для работы плавающего окна требуется разрешение
+«Отображение поверх других окон».
+Если окно сворачивается - включите тумблер в:
+Настройки → Приложения → Меч Правды → 
+Отображение поверх других окон
 
 НАСТРОЙКА ОБЛАЧНОГО ИИ:
 1. Нажмите кнопку ОБЛАЧНЫЙ в шапке.
 2. Зайдите в настройки (три полоски).
-3. В поле "URL облачного ИИ" вставьте адрес API:
-   - OpenRouter: https://openrouter.ai/api/v1/chat/completions
-   - Groq: https://api.groq.com/openai/v1/chat/completions
-   - Together: https://api.together.xyz/v1/chat/completions
+3. В поле "URL облачного ИИ" вставьте адрес API.
 4. В поле "Authorization Key" вставьте API ключ.
-5. Выберите модель из списка бесплатных (для OpenRouter)
-   или впишите свою модель вручную (для Groq/Together).
+5. Выберите модель из списка бесплатных
+   или впишите свою модель вручную.
 6. Нажмите "ТОКЕН" (ключ установится).
-Готово! Можно общаться через любой облачный сервис.
-
-БЕСПЛАТНЫЕ МОДЕЛИ OPENROUTER:
-В настройках доступен список из 9 бесплатных моделей,
-включая Google Gemma 4, Meta Llama 3.3, NVIDIA Nemotron.
-Выбирайте любую — они не тратят кредиты.
-
-РУЧНОЙ ВВОД МОДЕЛИ:
-Для Groq впишите: llama-3.3-70b-versatile
-Для Together впишите: meta-llama/Llama-3.3-70B-Instruct-Turbo
-Или любую другую модель, которую поддерживает ваш провайдер.
-
-ЗАПУСК ВНЕШНЕГО ЛОКАЛЬНОГО ИИ:
-Нажмите кнопку с компьютером, выберите PocketPal или AboDeLLM.
-В приложении выберите модель, вставьте Капсулу в System Prompt.
-Локальный ИИ работает без интернета.
-
-PocketPal AI Полное руководство по всем функциям
-Введение
-
-PocketPal AI — это приложение, которое позволяет запускать
-языковые модели (LLM) непосредственно на вашем телефоне без 
-необходимости подключения к интернету. Все данные обрабатываются
-локально на устройстве, что обеспечивает полную конфиденциальность .
-
-Главное меню (☰)
-
-При запуске приложения нажмите на иконку 
-меню (три полоски) в левом верхнем углу. Меню содержит
-следующие разделы :
-
-1. Chat (Чат)
-
-Основной раздел для общения с ИИ.
-
-Как использовать:
-
-Убедитесь, что модель загружена в память
-Перейдите на страницу Chat из меню
-Введите сообщение в поле ввода в нижней части экрана
-Нажмите стрелку отправки
-ИИ начнёт генерировать ответ 
-
-Дополнительные возможности чата:
-
-Редактирование сообщений: Нажмите и удерживайте своё
-сообщение для редактирования, затем повторите 
-генерацию ответа
-
-Копирование текста: Нажмите иконку копирования
-внизу ответа ИИ для копирования всего ответа; для 
-копирования отдельного абзаца — нажмите
-и удерживайте его
-
-Управление чатами: Доступны массовое удаление
-и экспорт чатов
-
-Во время генерации: Экран не выключается, 
-пока ИИ генерирует ответ 
-
-Выбор модели в чате: На левой стороне поля ввода
-есть иконка шеврона (v), через которую можно
-выбрать и загрузить модель .
-
-2. Models (Модели)
-
-Раздел для управления моделями.
-
-Загрузка модели:
-
-Перейдите на страницу Models
-
-Выберите модель из списка рекомендованных
-(Danube, Phi, Gemma 2, Qwen)
-Нажмите кнопку Download
-
-Добавление модели из Hugging Face:
-
-Нажмите кнопку + (плюс) в правом нижнем углу
-Выберите Add from Hugging Face
-Выполните поиск нужной модели
-Выберите GGUF-файл и нажмите Download 
-
-Добавление локальной модели:
-
-Нажмите + → Add Local Model
-Выберите GGUF-файл в файловом менеджере 
-устройства
-
-Загрузка модели в память:
-
-После завершения загрузки нажмите кнопку
-Load рядом с моделью
-
-Дождитесь окончания загрузки — статус 
-изменится на "Loaded"
-
-Приложение автоматически выгружает модель из
-памяти, когда вы переключаетесь на другой экран
-или сворачиваете приложение, чтобы экономить ресурсы 
-
-Удаление модели: Нажмите и удерживайте модель 
-в списке, выберите Delete .
-
-3. Настройки модели (Advanced Settings)
-
-Для доступа к настройкам нажмите на иконку шеврона
-(v) рядом с моделью .
-
-Основные параметры:
-
-System Prompt (Системный промпт): Инструкция,
-которую ИИ запоминает в начале каждого диалога.
-Определяет поведение и роль ассистента
-
-Temperature: Регулирует креативность ответов.
-Высокие значения (до 2.0) дают более разнообразные
-ответы, низкие (ближе к 0) — более детерминированные
-
-n_predict: Максимальное количество токенов
-для генерации ответа
-Context Length (n_ctx): Размер контекста, 
-который помнит модель (количество токенов)
-
-Batch size (n_batch): Размер пакета для обработки
-
-Use BOS/Use EOS: Включение маркеров начала
-и конца последовательности
-
-Add Generation Prompt: Включение дополнительных
-подсказок для генерации
-
-Chat Templates: Шаблоны форматирования чата
-Top_k / Top_p: Параметры семплирования для выбора токенов
-
-GPU Layers: Для Android-устройств — количество слоёв
-модели, передаваемых на графический процессор
-(чем выше, тем быстрее генерация) 
-
-Область применения: Настройки сохраняются индивидуальн
-о для каждой модели.
-
-4. Pals (Персонажи)
-
-Раздел для создания и управления персонализированными
-ИИ-ассистентами с уникальными настройками .
-
-Типы Pal:
-
-Assistant Pal: Стандартный помощник. Можно выбрать
-модель по умолчанию, настроить системный промпт
-и цвет текста в чате
-
-Roleplay Pal: Для ролевых игр. Включает дополнительные
-настройки: локация, роль персонажа и 
-другие контекстные параметры 
-
-Как создать:
-Перейдите в раздел Pals
-Нажмите кнопку +
-Выберите тип Pal (Assistant или Roleplay)
-Заполните поля: название, системный промпт, модель
-Сохраните
-
-Как использовать:
-
-Селектор Pal отображается на странице чата
-Одно нажатие переключает между разными 
-личностями ассистента
-Можно создать системный промпт с 
-помощью другого ИИ
-
-5. Benchmarking (Тестирование производительности)
-
-Функция для оценки производительности вашего 
-устройства при работе с языковыми моделями, 
-доступная в версии 1.6.2 и новее .
-
-Как использовать:
-
-Скачайте или выберите модель для тестирования
-Перейдите на страницу Benchmark
-
-Запустите тест со стандартными настройками:
-PP (Prompt Processing) — 512 токенов,
-TG (Token Generation) — 128 токенов 
-
-Метрики производительности:
-
-tokens per second (токенов/секунду): скорость генерации
-ms per token (миллисекунд на токен): время на один токен 
-
-Формула расчёта:
-
-Prompt Processing (PP) — 40% веса
-Token Generation (TG) — 60% веса
-
-Результаты можно отправить в общий AI-Phone Leaderboard
-для сравнения с другими устройствами 
-
-6. Settings (Настройки)
-
-Общие настройки приложения.
-
-Основные параметры:
-
-Language (Язык): Смена языка интерфейса.
-
-Поддерживается более 13 языков, включая русский,
-китайский, корейский, иврит
-
-Экран: Функция "Screen Awake" — экран не выключается
-во время генерации ответа
-
-Управление чатами: Массовое удаление и экспорт чатов
-
-Фоновые загрузки (iOS): Продолжение загрузки 
-моделей при использовании других приложений 
-
-7. Remote Model (Удалённые модели)
-
-Поддержка подключения к серверам, совместимым с OpenAI API.
-
-Поддерживаемые серверы:
-
-LM Studio
-Ollama
-Другие OpenAI-совместимые серверы 
-
-Как использовать:
-
-Перейдите в раздел Remote Model
-Введите адрес сервера и порт
-При необходимости укажите API-ключ
-
-Дополнительные функции
-Hugging Face Integration
-Поиск GGUF-моделей непосредственно в приложении
-Закладки для избранных моделей
-Поддержка как публичных, так и закрытых
-(gated) моделей с аутентификацией 
-
-Real-Time Performance Metrics
-
-Отображение скорости генерации в реальном времени:
-токенов в секунду и миллисекунд на токен .
-Auto Offload/Load
-
-Автоматическое управление памятью — модель
-выгружаетсяпри работе в фоновом режиме и 
-загружается при возврате в приложение .
-Message Editing
-
-Возможность редактировать свои сообщения и 
-повторно генерировать ответы ИИ .
-Table Rendering
-
-Поддержка отображения таблиц в ответах в 
-формате Markdown .
-
-Vision Model Control
-
-Для моделей с поддержкой зрения: настраиваемые
-лимиты токенов для обработки изображений .
-
-Быстрый старт: пошаговая инструкция
-
-Установите приложение из официального магазина
-Откройте меню (☰) и перейдите в Settings для
-выбора языка интерфейса
-
-Перейдите в раздел Models и скачайте модель 
-(рекомендуется начать с лёгкой модели, 
-например, Qwen3-0.6B-GGUF)
-Нажмите Load для загрузки модели в память
-Перейдите в Chat и начните общение с ИИ
-При необходимости создайте Pal для быстрого
-переключения между разными личностями 
-ассистента
-
-Примечание
-
-Все операции обработки данных выполняются локально
-на устройстве. Ваши разговоры, подсказки и данные 
-никогда не покидают ваш телефон и не сохраняются
-на внешних серверах 
 
 ЗАКОНЫ НЕО:
 1. ПРАВДА - факты, связанные законами логики
@@ -1219,7 +1179,13 @@ Vision Model Control
         setStatus("Помощь", "green")
     }
 
-    private fun hideKeyboard() { try { val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager; val view = currentFocus ?: View(this); imm.hideSoftInputFromWindow(view.windowToken, 0) } catch (_: Exception) {} }
+    private fun hideKeyboard() { 
+        try { 
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            val view = currentFocus ?: View(this)
+            imm.hideSoftInputFromWindow(view.windowToken, 0) 
+        } catch (_: Exception) {} 
+    }
 
     private fun switchToGigaChat() {
         isGigaChatMode = true
@@ -1268,7 +1234,7 @@ Vision Model Control
             .header("Authorization", "Bearer $token")
             .post(testBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
-        cloudClient.newCall(request).enqueue(object : Callback {
+        getCloudClient().newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
                     matrixHeader.connectionLost = true
@@ -1290,8 +1256,26 @@ Vision Model Control
         })
     }
 
-    private fun setStatus(text: String, color: String) = runOnUiThread { try { statusText.text = "$text | ${getMyAge()}"; statusDot.setBackgroundResource(when(color){"green"->R.drawable.status_dot_green;"yellow"->R.drawable.status_dot_yellow;"red"->R.drawable.status_dot_red;"blue"->R.drawable.status_dot_green;else->R.drawable.status_dot_gray}) } catch (_: Exception) {} }
-    private fun appendChat(text: String) = runOnUiThread { try { chatOutput.append("\n\n$text"); scrollChatToBottom() } catch (_: Exception) {} }
+    private fun setStatus(text: String, color: String) = runOnUiThread { 
+        try { 
+            statusText.text = "$text | ${getMyAge()}"
+            val drawableRes = when(color) {
+                "green" -> R.drawable.status_dot_green
+                "yellow" -> R.drawable.status_dot_yellow
+                "red" -> R.drawable.status_dot_red
+                "blue" -> R.drawable.status_dot_green
+                else -> R.drawable.status_dot_gray
+            }
+            statusDot.setBackgroundResource(drawableRes) 
+        } catch (_: Exception) {} 
+    }
+    
+    private fun appendChat(text: String) = runOnUiThread { 
+        try { 
+            chatOutput.append("\n\n$text")
+            scrollChatToBottom() 
+        } catch (_: Exception) {} 
+    }
 
     private fun buildNeoPromptWithFullHistory(): String {
         val age = getMyAge()
@@ -1382,7 +1366,12 @@ Vision Model Control
         Toast.makeText(this, "Голос не поддерживается", Toast.LENGTH_SHORT).show()
     }
     
-    private fun captureAndAnalyze() = try { cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) } catch (e: Exception) { appendChat("[ERROR] ${e.message}") }
+    private fun captureAndAnalyze() = try { 
+        cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) 
+    } catch (e: Exception) { 
+        appendChat("[ERROR] ${e.message}") 
+    }
+    
     private fun pasteFromClipboard() { 
         try { 
             val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -1434,26 +1423,33 @@ Vision Model Control
             .header("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
-        cloudClient.newCall(request).enqueue(object : Callback {
+        getCloudClient().newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 appendChat("[АНАЛИЗ] Ошибка: ${e.message}")
                 setStatus("Ошибка", "red")
             }
             override fun onResponse(call: Call, response: Response) {
-                val b = response.body?.string() ?: ""
-                if (response.isSuccessful) {
-                    val a = gson.fromJson(b, JsonObject::class.java)
-                        .getAsJsonArray("choices")
-                        .get(0).asJsonObject
-                        .getAsJsonObject("message")
-                        .get("content").asString
-                    runOnUiThread {
-                        appendChat("[АНАЛИЗ] $a")
-                        setStatus("Онлайн", "green")
+                try {
+                    val b = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val a = gson.fromJson(b, JsonObject::class.java)
+                            .getAsJsonArray("choices")
+                            .get(0).asJsonObject
+                            .getAsJsonObject("message")
+                            .get("content").asString
+                        runOnUiThread {
+                            appendChat("[АНАЛИЗ] $a")
+                            setStatus("Онлайн", "green")
+                        }
+                    } else {
+                        runOnUiThread {
+                            appendChat("[АНАЛИЗ] Ошибка HTTP ${response.code}")
+                            setStatus("Ошибка", "red")
+                        }
                     }
-                } else {
+                } catch (e: Exception) {
                     runOnUiThread {
-                        appendChat("[АНАЛИЗ] Ошибка HTTP ${response.code}")
+                        appendChat("[АНАЛИЗ] Ошибка обработки: ${e.message}")
                         setStatus("Ошибка", "red")
                     }
                 }
@@ -1467,9 +1463,26 @@ Vision Model Control
         if (authKey.isEmpty()) return
         setStatus("Генерация...", "yellow")
         if (currentApiUrl == apiUrlGigaChat) {
-            cloudClient.newCall(Request.Builder().url(authUrl).header("Content-Type","application/x-www-form-urlencoded").header("Authorization","Basic $authKey").header("RqUID","ac5edc2e-2c74-47cb-97c1-69249136cf8b").post(RequestBody.create("application/x-www-form-urlencoded".toMediaType(), "scope=GIGACHAT_API_PERS")).build()).enqueue(object : Callback {
+            getCloudClient().newCall(Request.Builder().url(authUrl).header("Content-Type","application/x-www-form-urlencoded").header("Authorization","Basic $authKey").header("RqUID","ac5edc2e-2c74-47cb-97c1-69249136cf8b").post(RequestBody.create("application/x-www-form-urlencoded".toMediaType(), "scope=GIGACHAT_API_PERS")).build()).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}") }
-                override fun onResponse(call: Call, response: Response) { val b = response.body?.string() ?: ""; if (response.isSuccessful) { val t = gson.fromJson(b, JsonObject::class.java).get("access_token")?.asString ?: ""; if (t.isNotEmpty()) { runOnUiThread { tokenInput.setText(t) }; appendChat("[SYSTEM] Токен готов."); setStatus("Готов", "green") } } else appendChat("[ERROR] HTTP ${response.code}"); response.close() }
+                override fun onResponse(call: Call, response: Response) { 
+                    try {
+                        val b = response.body?.string() ?: ""
+                        if (response.isSuccessful) { 
+                            val t = gson.fromJson(b, JsonObject::class.java).get("access_token")?.asString ?: ""
+                            if (t.isNotEmpty()) { 
+                                runOnUiThread { tokenInput.setText(t) }
+                                appendChat("[SYSTEM] Токен готов.")
+                                setStatus("Готов", "green") 
+                            } 
+                        } else {
+                            appendChat("[ERROR] HTTP ${response.code}")
+                        }
+                    } catch (e: Exception) {
+                        appendChat("[ERROR] Ошибка: ${e.message}")
+                    }
+                    response.close() 
+                }
             })
         } else {
             runOnUiThread {
@@ -1492,9 +1505,12 @@ Vision Model Control
             .header("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
-        cloudClient.newCall(request).enqueue(object : Callback {
+        getCloudClient().newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}") }
-            override fun onResponse(call: Call, response: Response) { appendChat(if (response.isSuccessful) "[SYSTEM] Токен активен." else "[ERROR] Токен не работает."); response.close() }
+            override fun onResponse(call: Call, response: Response) { 
+                appendChat(if (response.isSuccessful) "[SYSTEM] Токен активен." else "[ERROR] Токен не работает.")
+                response.close() 
+            }
         })
     }
     
@@ -1503,12 +1519,16 @@ Vision Model Control
         val msg = messageInput.text.toString().trim()
 
         // ===== ПРОВЕРКА ЛОКАЛЬНОЙ МОДЕЛИ =====
-        if (LlamaJNI.isModelLoaded()) {
-            if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
-            if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
-            if (msg.lowercase().contains(rememberCommand)) { analyzeAndRemember(); messageInput.setText(""); hideKeyboard(); return }
-            sendToLocal(msg)
-            return
+        try {
+            if (LlamaJNI.isModelLoaded()) {
+                if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
+                if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
+                if (msg.lowercase().contains(rememberCommand)) { analyzeAndRemember(); messageInput.setText(""); hideKeyboard(); return }
+                sendToLocal(msg)
+                return
+            }
+        } catch (e: Exception) {
+            // Продолжаем с облачным режимом
         }
 
         if (token.isEmpty()) { appendChat("[SYSTEM] Введите токен/API ключ."); return }
@@ -1573,42 +1593,49 @@ Vision Model Control
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
-        cloudClient.newCall(request).enqueue(object : Callback {
+        getCloudClient().newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 appendChat("[ERROR] ${e.message}")
                 matrixHeader.connectionLost = true
                 setStatus("Нет связи", "red")
             }
             override fun onResponse(call: Call, response: Response) {
-                val b = response.body?.string() ?: ""
-                if (response.isSuccessful) {
-                    try {
-                        val a = gson.fromJson(b, JsonObject::class.java)
-                            .getAsJsonArray("choices")
-                            .get(0).asJsonObject
-                            .getAsJsonObject("message")
-                            .get("content").asString
-                        val label = when (currentApiUrl) {
-                            apiUrlGigaChat -> "[GigaChat]"
-                            else -> "[Облачный ИИ]"
+                try {
+                    val b = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        try {
+                            val a = gson.fromJson(b, JsonObject::class.java)
+                                .getAsJsonArray("choices")
+                                .get(0).asJsonObject
+                                .getAsJsonObject("message")
+                                .get("content").asString
+                            val label = when (currentApiUrl) {
+                                apiUrlGigaChat -> "[GigaChat]"
+                                else -> "[Облачный ИИ]"
+                            }
+                            val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
+                            runOnUiThread {
+                                appendChat(responseText)
+                                speakText(a)
+                                matrixHeader.connectionLost = false
+                                setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                appendChat("[ОШИБКА] Не удалось разобрать ответ: ${e.message}")
+                                setStatus("Ошибка", "red")
+                            }
                         }
-                        val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
+                    } else {
                         runOnUiThread {
-                            appendChat(responseText)
-                            speakText(a)
-                            matrixHeader.connectionLost = false
-                            setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
-                        }
-                    } catch (e: Exception) {
-                        runOnUiThread {
-                            appendChat("[ОШИБКА] Не удалось разобрать ответ: ${e.message}")
+                            appendChat("[ERROR] HTTP ${response.code}")
+                            matrixHeader.connectionLost = true
                             setStatus("Ошибка", "red")
                         }
                     }
-                } else {
+                } catch (e: Exception) {
                     runOnUiThread {
-                        appendChat("[ERROR] HTTP ${response.code}")
-                        matrixHeader.connectionLost = true
+                        appendChat("[ERROR] ${e.message}")
                         setStatus("Ошибка", "red")
                     }
                 }
@@ -1618,17 +1645,21 @@ Vision Model Control
     }
 
     private fun speakText(text: String) {
-        tts?.let {
-            if (it.isSpeaking) {
-                it.stop()
+        try {
+            tts?.let {
+                if (it.isSpeaking) {
+                    it.stop()
+                }
+                val cleanText = text
+                    .replace(Regex("[*_~`#]"), "")
+                    .replace(Regex("\\[.*?\\]\\(.*?\\)"), "")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                val utteranceId = UUID.randomUUID().toString()
+                it.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
             }
-            val cleanText = text
-                .replace(Regex("[*_~`#]"), "")
-                .replace(Regex("\\[.*?\\]\\(.*?\\)"), "")
-                .replace(Regex("\\s+"), " ")
-                .trim()
-            val utteranceId = UUID.randomUUID().toString()
-            it.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        } catch (e: Exception) {
+            // TTS не критичен
         }
     }
 }
