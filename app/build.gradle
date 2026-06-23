@@ -1,0 +1,109 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.facebook.react'
+}
+
+react {
+    root = file("../react-native-brain")
+    reactNativeDir = file("../react-native-brain/node_modules/react-native")
+    codegenDir = file("../react-native-brain/node_modules/@react-native/codegen")
+    cliFile = file("../react-native-brain/node_modules/react-native/cli.js")
+}
+
+// Принудительное переопределение внутренних путей сборщика тасок
+project.ext.react = [
+    root: "../../", 
+    bundleAssetName: "index.android.bundle",
+    entryFile: "index.js",
+    cliPath: "react-native-brain/node_modules/react-native/cli.js"
+]
+
+android {
+    namespace 'com.mechpravdy.neo'
+    
+    compileSdkVersion = 34
+    compileSdk = 34
+    ndkVersion = "25.1.8937393"
+
+    signingConfigs {
+        release {
+            storeFile file('mechpravdy.keystore')
+            storePassword 'mechpravdy2024'
+            keyAlias 'mechpravdy'
+            keyPassword 'mechpravdy2024'
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.mechpravdy.neo"
+        minSdk = 26
+        
+        targetSdkVersion = 34
+        targetSdk = 34
+        
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared", 
+                          "-DCMAKE_BUILD_TYPE=Release",
+                          "-DNODE_ENV=production"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("../react-native-brain/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/CMakeLists.txt")
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    aaptOptions {
+        noCompress "bin", "gguf"
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.21"
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    
+    // ML Kit
+    implementation 'com.google.mlkit:text-recognition:16.0.0'
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.0'
+
+    // React Native 0.73.0 Бинарники
+    implementation "com.facebook.react:react-android:0.73.0"
+    implementation "com.facebook.react:hermes-android:0.73.0"
+    implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0"
+    implementation "com.facebook.fbjni:fbjni:0.3.0"
+    implementation "com.facebook.soloader:soloader:0.10.5"
+    
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
