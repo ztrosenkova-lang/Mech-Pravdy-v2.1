@@ -101,7 +101,7 @@ class MatrixHeaderView @JvmOverloads constructor(
     private val updateRunnable = object : Runnable {
         override fun run() {
             if (isAttachedToWindow) {
-                invalidate()
+                postInvalidate()
                 handler.postDelayed(this, 50)
             }
         }
@@ -123,7 +123,7 @@ class MatrixHeaderView @JvmOverloads constructor(
                 val totalUsed = javaUsed + nativeUsed
                 
                 memoryText = "$javaUsed+$nativeUsed/$javaMax MB"
-                invalidate()
+                postInvalidate()
                 memoryHandler.postDelayed(this, 1000)
             }
         }
