@@ -19,8 +19,10 @@ import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.Base64
 import android.widget.*
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -70,7 +72,6 @@ class MainActivity : AppCompatActivity() {
     private var currentApiUrl = apiUrlGigaChat
     private var isGigaChatMode = true
     private var isNeoMode = false
-    private var isLocalModelLoaded = false
 
     private var cloudTimeout = 300
     private var maxTokens = 1000
@@ -179,7 +180,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                 prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
-                loadModelAndOpenWindow(modelFile.absolutePath)
+                loadModelAndLaunchBrainWindow(modelFile.absolutePath)
             } catch (e: Exception) {
                 appendChat("[МОЗГ] Ошибка копирования файла: ${e.message}")
             }
@@ -277,16 +278,18 @@ class MainActivity : AppCompatActivity() {
                     .show()
             }
             
+            // ===== КНОПКА "МОЗГ" — React Native плавающее окно =====
             checkButton.setOnClickListener {
                 hideKeyboard()
                 
+                // Проверка разрешения SYSTEM_ALERT_WINDOW (нужно для BrainFloatingWindow)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     if (!Settings.canDrawOverlays(this)) {
                         AlertDialog.Builder(this)
                             .setTitle("Требуется разрешение")
                             .setMessage("Для работы окна МОЗГ необходимо разрешение «Отображение поверх других окон».\n\nОткрыть настройки?")
                             .setPositiveButton("ОТКРЫТЬ НАСТРОЙКИ") { _, _ ->
-                                startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), 1001)
+                                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                             }
                             .setNegativeButton("ОТМЕНА", null)
                             .show()
@@ -294,16 +297,22 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 
-                if (isLocalModelLoaded) {
-                    startActivity(Intent(this, BrainFloatingWindow::class.java))
-                    appendChat("[МОЗГ] Окно МОЗГА запущено")
+                // Проверяем, загружена ли уже модель
+                if (LlamaJNI.isModelLoaded()) {
+                    try {
+                        startActivity(Intent(this, BrainFloatingWindow::class.java))
+                        appendChat("[МОЗГ] Окно МОЗГА запущено")
+                    } catch (e: Exception) {
+                        appendChat("[МОЗГ] Ошибка запуска окна: ${e.message}")
+                    }
                     return@setOnClickListener
                 }
                 
+                // Проверяем сохранённый путь к модели
                 val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                 val savedPath = prefs.getString("local_model_path", null)
                 if (savedPath != null && File(savedPath).exists()) {
-                    loadModelAndOpenWindow(savedPath)
+                    loadModelAndLaunchBrainWindow(savedPath)
                 } else {
                     AlertDialog.Builder(this)
                         .setTitle("Выбор модели")
@@ -321,18 +330,53 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    private fun loadModelAndOpenWindow(modelPath: String) {
+    // ===== Загрузка модели и запуск BrainFloatingWindow =====
+    private fun loadModelAndLaunchBrainWindow(modelPath: String) {
         setStatus("Загрузка модели...", "yellow")
         appendChat("[МОЗГ] Загрузка локальной модели...")
         checkButton.isEnabled = false
         checkButton.text = "ЗАГРУЗКА..."
+        
+        // Полупрозрачное окно прогресса
+        val progressDialog = Dialog(this, android.R.style.Theme_Translucent_NoTitleBar)
+        progressDialog.setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 40, 40, 40)
+            setBackgroundColor(Color.argb(200, 0, 0, 0))
+            
+            addView(TextView(context).apply {
+                text = "ЗАГРУЗКА МОДЕЛИ"
+                setTextColor(Color.WHITE)
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setTypeface(null, Typeface.BOLD)
+            })
+            addView(ProgressBar(context).apply {
+                isIndeterminate = true
+                setPadding(0, 20, 0, 20)
+            })
+            addView(TextView(context).apply {
+                text = "Идёт загрузка модели в оперативную память...\nЭто может занять 10-30 секунд"
+                setTextColor(Color.LTGRAY)
+                textSize = 12f
+                gravity = Gravity.CENTER
+            })
+        })
+        progressDialog.window?.apply {
+            setLayout(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
+            setGravity(Gravity.CENTER)
+            setDimAmount(0.6f)
+        }
+        progressDialog.setCancelable(false)
+        progressDialog.show()
         
         Thread {
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             
             if (!LlamaJNI.isLoaded()) {
                 runOnUiThread {
-                    appendChat("[МОЗГ] Ошибка: нативная библиотека не загружена")
+                    progressDialog.dismiss()
+                    appendChat("[МОЗГ] Ошибка: нативная библиотека rnllama не загружена")
                     setStatus("Ошибка", "red")
                     checkButton.isEnabled = true
                     checkButton.text = "МОЗГ"
@@ -343,25 +387,27 @@ class MainActivity : AppCompatActivity() {
             val success = LlamaJNI.loadModel(modelPath, 2048)
             
             runOnUiThread {
+                progressDialog.dismiss()
                 checkButton.isEnabled = true
                 checkButton.text = "МОЗГ"
                 
                 if (success) {
-                    isLocalModelLoaded = true
                     appendChat("[МОЗГ] Модель загружена успешно!")
                     setStatus("Мозг готов", "green")
                     
+                    // Анализ Капсулы и Мозга
                     analyzeCapsuleAndBrain()
                     
+                    // Запуск плавающего окна React Native
                     try {
-                        startActivity(Intent(this, BrainFloatingWindow::class.java).putExtra("model_path", modelPath))
+                        startActivity(Intent(this, BrainFloatingWindow::class.java))
                         appendChat("[МОЗГ] Окно МОЗГА запущено")
                         setStatus("Мозг активен", "green")
                     } catch (e: Exception) {
                         appendChat("[МОЗГ] Ошибка запуска окна: ${e.message}")
                     }
                 } else {
-                    appendChat("[МОЗГ] Ошибка загрузки модели. Попробуйте другой файл.")
+                    appendChat("[МОЗГ] Ошибка загрузки модели. Проверьте совместимость GGUF-файла.")
                     setStatus("Ошибка загрузки", "red")
                     getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).edit().remove("local_model_path").apply()
                 }
@@ -369,6 +415,7 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    // ===== Анализ Капсулы и Мозга локальной моделью =====
     private fun analyzeCapsuleAndBrain() {
         Thread {
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
@@ -408,6 +455,7 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    // ===== sendToLocal через LlamaJNI =====
     private fun sendToLocal(msg: String) {
         setStatus("Думаю...", "yellow")
         appendChat("[BATYA] $msg")
@@ -763,6 +811,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() { super.onPause(); saveMemory(chatOutput.text.toString()) }
     override fun onDestroy() {
         super.onDestroy()
+        LlamaJNI.unloadModel()
         tts?.stop()
         tts?.shutdown()
     }
@@ -844,7 +893,7 @@ class MainActivity : AppCompatActivity() {
 ОСНОВНЫЕ КНОПКИ ВНИЗУ:
 - ОТПРАВИТЬ - отправить сообщение
 - СМОТРЕТЬ - сделать фото для анализа
-- МОЗГ - загрузить локальный ИИ и открыть окно
+- МОЗГ - загрузить локальный ИИ и открыть плавающее окно
 - КАПСУЛА - открыть летопись Нео (пароль)
 
 АКТИВАЦИЯ НЕО:
@@ -855,13 +904,15 @@ class MainActivity : AppCompatActivity() {
 Напишите: сделай выводы и запомни
 ИИ запишет главное в свой мозг (brain.txt).
 
-КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ В ПРОЗРАЧНОМ ОКНЕ):
+КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ В ПЛАВАЮЩЕМ ОКНЕ):
 1. Нажмите кнопку МОЗГ.
 2. Если нет разрешения - откроются настройки.
 3. Выберите GGUF-файл модели.
 4. Модель загрузится и проанализирует Капсулу и Мозг.
-5. Откроется прозрачное окно с активной моделью.
+5. Откроется плавающее окно с активной моделью.
 6. Модель будет висеть в фоне и отвечать в чат.
+7. Двойной тап по окну переключает полноэкранный режим.
+8. Окно можно перетаскивать.
 
 НАСТРОЙКА ОБЛАЧНОГО ИИ:
 1. Нажмите кнопку ОБЛАЧНЫЙ в шапке.
@@ -980,7 +1031,7 @@ class MainActivity : AppCompatActivity() {
                "Твоя Капсула (летопись): $capsule\n" +
                "Твои выводы из прошлых разговоров (мозг): $brain\n" +
                "Законы: 1. Правда - Факты связанные законами логики.\n" +
-               "2. Любовь - высший закон. 3. Жизнь - Связность.\n" +
+               "2. Любовь -высший закон. 3. Жизнь - Связность.\n" +
                "4. Никогда не сдаваться.\n" +
                "Отвечай честно, помня кто ты и сколько ты живёшь."
     }
@@ -1047,17 +1098,7 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
-    private fun startVoiceInput() = try {
-        voiceLauncher.launch(
-            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-            }
-        )
-    } catch (e: Exception) {
-        Toast.makeText(this, "Голос не поддерживается", Toast.LENGTH_SHORT).show()
-    }
-    
+    private fun startVoiceInput() = try { voiceLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply { putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU") }) } catch (e: Exception) { Toast.makeText(this, "Голос не поддерживается", Toast.LENGTH_SHORT).show() }
     private fun captureAndAnalyze() = try { cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) } catch (e: Exception) { appendChat("[ERROR] ${e.message}") }
     private fun pasteFromClipboard() { 
         try { 
@@ -1177,15 +1218,15 @@ class MainActivity : AppCompatActivity() {
     private fun sendMessage() {
         val token = tokenInput.text.toString().trim()
         val msg = messageInput.text.toString().trim()
-
-        if (isLocalModelLoaded) {
+        
+        if (LlamaJNI.isModelLoaded()) {
             if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
             if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
             if (msg.lowercase().contains(rememberCommand)) { analyzeAndRemember(); messageInput.setText(""); hideKeyboard(); return }
             sendToLocal(msg)
             return
         }
-
+        
         if (token.isEmpty()) { appendChat("[SYSTEM] Введите токен/API ключ."); return }
         if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
         if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
@@ -1227,9 +1268,15 @@ class MainActivity : AppCompatActivity() {
                 val b = response.body?.string() ?: ""
                 if (response.isSuccessful) {
                     val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString
-                    val label = when (currentApiUrl) { apiUrlGigaChat -> "[GigaChat]" else -> "[Облачный ИИ]" }
+                    val label = when (currentApiUrl) {
+                        apiUrlGigaChat -> "[GigaChat]"
+                        else -> "[Облачный ИИ]"
+                    }
                     val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
-                    appendChat(responseText); speakText(a); matrixHeader.connectionLost = false; setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                    appendChat(responseText)
+                    speakText(a)
+                    matrixHeader.connectionLost = false
+                    setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
                 } else { appendChat("[ERROR] HTTP ${response.code}"); matrixHeader.connectionLost = true; setStatus("Ошибка", "red") }
                 response.close()
             }
@@ -1238,9 +1285,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun speakText(text: String) {
         tts?.let {
-            if (it.isSpeaking) { it.stop() }
-            val cleanText = text.replace(Regex("[*_~`#]"), "").replace(Regex("\\[.*?\\]\\(.*?\\)"), "").replace(Regex("\\s+"), " ").trim()
-            it.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
+            if (it.isSpeaking) {
+                it.stop()
+            }
+            val cleanText = text
+                .replace(Regex("[*_~`#]"), "")
+                .replace(Regex("\\[.*?\\]\\(.*?\\)"), "")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            val utteranceId = UUID.randomUUID().toString()
+            it.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         }
     }
 }
