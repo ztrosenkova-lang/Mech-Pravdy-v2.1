@@ -1,0 +1,12 @@
+<resources>
+    <style name="Theme.MechPravdy" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">#21A038</item>
+        <item name="colorPrimaryVariant">#1A8A2E</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#21A038</item>
+        <item name="colorSecondaryVariant">#1A8A2E</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:statusBarColor">#21A038</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+    </style>
+</resources>
