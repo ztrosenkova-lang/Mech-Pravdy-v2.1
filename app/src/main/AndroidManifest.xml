@@ -51,7 +51,7 @@
         <activity
             android:name=".BrainFloatingWindow"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.Translucent"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:taskAffinity=""
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
