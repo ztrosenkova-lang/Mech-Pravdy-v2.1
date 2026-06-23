@@ -1,0 +1,23 @@
+buildscript {
+    // Явно указываем Gradle-системе, где физически находится ядро React Android
+    System.setProperty("REACT_ANDROID_DIR", "${projectDir}/react-native-brain/node_modules/react-native/ReactAndroid")
+    
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.3'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21'
+    }
+    
+    configurations.all {
+        resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+            if (details.requested.group == 'org.jetbrains.kotlin') {
+                details.useVersion '2.0.21'
+            }
+        }
+    }
+}
+// ... (остальной блок allprojects и clean оставляем без изменений)

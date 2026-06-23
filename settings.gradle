@@ -1,0 +1,23 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+        // Пути к нативным бинарникам внутри react-native-brain
+        maven { url "$rootDir/react-native-brain/node_modules/react-native/android" }
+        maven { url "$rootDir/react-native-brain/node_modules/jsc-android/dist" }
+    }
+}
+rootProject.name = "Mech-Pravdy-v2"
+include ':app'
+
+// Путь сборки плагина React Native
+includeBuild('react-native-brain/node_modules/@react-native/gradle-plugin')
