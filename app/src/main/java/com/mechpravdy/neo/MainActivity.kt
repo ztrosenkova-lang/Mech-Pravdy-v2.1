@@ -203,18 +203,13 @@ class MainActivity : AppCompatActivity() {
         override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
     })
 
-    private val sslContext = SSLContext.getInstance("TLS").apply {
-        init(null, trustAllCerts, SecureRandom())
+    private val sslContext by lazy {
+        SSLContext.getInstance("TLS").apply {
+            init(null, trustAllCerts, SecureRandom())
+        }
     }
 
-    private var cloudClient = OkHttpClient.Builder()
-        .connectTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-        .readTimeout(cloudTimeout.toLong(), TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-        .hostnameVerifier { _, _ -> true }
-        .build()
+    private lateinit var cloudClient: OkHttpClient
 
     private val gson = Gson()
 
@@ -223,6 +218,8 @@ class MainActivity : AppCompatActivity() {
         try {
             window.statusBarColor = Color.parseColor("#1A8A2E")
             setContentView(R.layout.activity_main)
+
+            updateCloudClient()
 
             tts = TextToSpeech(this) { status ->
                 if (status == TextToSpeech.SUCCESS) {
