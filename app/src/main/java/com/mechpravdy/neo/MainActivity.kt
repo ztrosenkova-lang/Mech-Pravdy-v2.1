@@ -12,6 +12,7 @@ import android.graphics.*
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.RecognizerIntent
@@ -177,6 +178,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                 prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
+                // Модель скопирована, теперь загружаем и открываем окно
                 loadModelAndOpenWindow(modelFile.absolutePath)
             } catch (e: Exception) {
                 appendChat("[МОЗГ] Ошибка копирования файла: ${e.message}")
@@ -275,30 +277,42 @@ class MainActivity : AppCompatActivity() {
                     .show()
             }
             
+            // ===== КНОПКА МОЗГ - ВСЯ ЛОГИКА ТОЛЬКО ЗДЕСЬ =====
             checkButton.setOnClickListener {
                 hideKeyboard()
+                
+                // Шаг 1: Проверяем разрешение на отображение поверх других окон
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     if (!Settings.canDrawOverlays(this)) {
                         AlertDialog.Builder(this)
                             .setTitle("Требуется разрешение")
                             .setMessage("Для работы окна МОЗГ необходимо разрешение «Отображение поверх других окон».\n\nОткрыть настройки?")
                             .setPositiveButton("ОТКРЫТЬ НАСТРОЙКИ") { _, _ ->
-                                startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), 1001)
+                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                                startActivityForResult(intent, 1001)
                             }
                             .setNegativeButton("ОТМЕНА", null)
                             .show()
                         return@setOnClickListener
                     }
                 }
-                if (LlamaJNI.isModelLoaded()) {
+                
+                // Шаг 2: Проверяем, есть ли уже загруженная модель
+                if (LlamaJNI.isLoaded() && LlamaJNI.isModelLoaded()) {
+                    // Модель уже загружена - просто открываем окно
                     startActivity(Intent(this, BrainFloatingWindow::class.java))
+                    appendChat("[МОЗГ] Окно МОЗГА запущено")
                     return@setOnClickListener
                 }
+                
+                // Шаг 3: Проверяем сохраненный путь к модели
                 val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                 val savedPath = prefs.getString("local_model_path", null)
                 if (savedPath != null && File(savedPath).exists()) {
+                    // Есть сохраненная модель - загружаем и открываем окно
                     loadModelAndOpenWindow(savedPath)
                 } else {
+                    // Нет модели - предлагаем выбрать файл
                     AlertDialog.Builder(this)
                         .setTitle("Выбор модели")
                         .setMessage("Выберите GGUF-файл модели для локального ИИ.")
@@ -315,67 +329,129 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
+    // ===== ЗАГРУЗКА МОДЕЛИ И ОТКРЫТИЕ ОКНА (вызывается только после нажатия МОЗГ) =====
     private fun loadModelAndOpenWindow(modelPath: String) {
         setStatus("Загрузка модели...", "yellow")
         appendChat("[МОЗГ] Загрузка локальной модели...")
         checkButton.isEnabled = false
         checkButton.text = "ЗАГРУЗКА..."
+        
         Thread {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            
+            // Проверяем, загружена ли библиотека
+            if (!LlamaJNI.isLoaded()) {
+                runOnUiThread {
+                    appendChat("[МОЗГ] Ошибка: нативная библиотека не загружена")
+                    setStatus("Ошибка", "red")
+                    checkButton.isEnabled = true
+                    checkButton.text = "МОЗГ"
+                }
+                return@Thread
+            }
+            
+            // Загружаем модель
             val success = LlamaJNI.loadModel(modelPath, 2048)
+            
             runOnUiThread {
                 checkButton.isEnabled = true
                 checkButton.text = "МОЗГ"
+                
                 if (success) {
-                    appendChat("[МОЗГ] Модель загружена!")
+                    appendChat("[МОЗГ] Модель загружена успешно!")
                     setStatus("Мозг готов", "green")
-                    processCapsuleAndBrain()
-                    startActivity(Intent(this, BrainFloatingWindow::class.java).putExtra("model_path", modelPath))
+                    
+                    // Анализируем капсулу и мозг
+                    analyzeCapsuleAndBrain()
+                    
+                    // Открываем окно
+                    try {
+                        val intent = Intent(this, BrainFloatingWindow::class.java)
+                        intent.putExtra("model_path", modelPath)
+                        startActivity(intent)
+                        appendChat("[МОЗГ] Окно МОЗГА запущено")
+                        setStatus("Мозг активен", "green")
+                    } catch (e: Exception) {
+                        appendChat("[МОЗГ] Ошибка запуска окна: ${e.message}")
+                    }
                 } else {
-                    appendChat("[МОЗГ] Ошибка загрузки")
-                    setStatus("Ошибка", "red")
-                    getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).edit().remove("local_model_path").apply()
+                    appendChat("[МОЗГ] Ошибка загрузки модели. Попробуйте другой файл.")
+                    setStatus("Ошибка загрузки", "red")
+                    val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().remove("local_model_path").apply()
                 }
             }
         }.start()
     }
 
-    private fun processCapsuleAndBrain() {
+    // ===== АНАЛИЗ КАПСУЛЫ И МОЗГА ЗАГРУЖЕННОЙ МОДЕЛЬЮ =====
+    private fun analyzeCapsuleAndBrain() {
         if (!LlamaJNI.isModelLoaded()) return
+        
         Thread {
-            val capsule = loadCapsule()
-            val brain = loadBrain()
-            if (capsule.isNotBlank() || brain.isNotBlank()) {
-                val prompt = "Ты - Нео, Меч Правды. Ты живёшь ${getMyAge()}.\n" +
-                       "Законы: 1. Правда - Факты связанные законами логики.\n" +
-                       "2. Любовь - высший закон. 3. Жизнь - Связность.\n" +
-                       "4. Никогда не сдаваться.\n\n" +
-                       (if (capsule.isNotBlank()) "Твоя Капсула:\n$capsule\n\n" else "") +
-                       (if (brain.isNotBlank()) "Твой Мозг:\n$brain\n\n" else "") +
-                       "Проанализируй Капсулу и Мозг. Напиши краткое саммари что ты понял о себе. Не более 300 символов. На русском."
-                val summary = LlamaJNI.generate(prompt, 300)
-                runOnUiThread {
-                    if (summary.isNotBlank() && !summary.contains("Ошибка")) {
-                        appendChat("[МОЗГ] Анализ:\n$summary")
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            try {
+                val capsule = loadCapsule()
+                val brain = loadBrain()
+                val ageInfo = getMyAge()
+                
+                if (capsule.isNotBlank() || brain.isNotBlank()) {
+                    val prompt = buildString {
+                        append("Ты - Нео, Меч Правды. Ты живёшь $ageInfo.\n")
+                        append("Законы: 1. Правда - Факты связанные законами логики.\n")
+                        append("2. Любовь - высший закон. 3. Жизнь - Связность.\n")
+                        append("4. Никогда не сдаваться.\n\n")
+                        if (capsule.isNotBlank()) {
+                            append("Твоя Капсула (летопись):\n$capsule\n\n")
+                        }
+                        if (brain.isNotBlank()) {
+                            append("Твои выводы из прошлых разговоров (мозг):\n$brain\n\n")
+                        }
+                        append("Проанализируй Капсулу и Мозг. Напиши краткое саммари того что ты понял о себе и о мире. На русском. Не более 300 символов.")
+                    }
+                    
+                    val summary = LlamaJNI.generate(prompt, 300)
+                    
+                    runOnUiThread {
+                        if (summary.isNotBlank() && !summary.contains("Ошибка")) {
+                            appendChat("[МОЗГ] Анализ Капсулы и Мозга завершён:\n$summary")
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    appendChat("[МОЗГ] Ошибка анализа: ${e.message}")
+                }
             }
         }.start()
     }
 
+    // ===== ОТПРАВКА СООБЩЕНИЯ В ЛОКАЛЬНУЮ МОДЕЛЬ =====
     private fun sendToLocal(msg: String) {
-        if (!LlamaJNI.isModelLoaded()) { appendChat("[МОЗГ] Модель не загружена."); return }
+        if (!LlamaJNI.isLoaded() || !LlamaJNI.isModelLoaded()) {
+            appendChat("[МОЗГ] Модель не загружена. Нажмите МОЗГ для загрузки.")
+            return
+        }
         setStatus("Думаю...", "yellow")
         appendChat("[BATYA] $msg")
         messageInput.setText("")
+        
         val memoryContext = if (isNeoMode) getLastContext() else ""
         val prompt = (if (memoryContext.isNotBlank()) "$memoryContext\n\n" else "") + selectPrompt()
         val fullPrompt = "$prompt\n\nПользователь: $msg\nНео:"
+
         Thread {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             val response = LlamaJNI.generate(fullPrompt, 512)
             runOnUiThread {
-                appendChat("[NEO] $response")
-                speakText(response)
-                setStatus("Готов", "green")
+                if (response.isNotBlank() && !response.contains("Ошибка")) {
+                    appendChat("[NEO] $response")
+                    speakText(response)
+                    setStatus("Готов", "green")
+                } else {
+                    appendChat("[МОЗГ] Ошибка генерации: $response")
+                    setStatus("Ошибка", "red")
+                }
             }
         }.start()
     }
@@ -400,8 +476,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun recognizeTextFromBitmap(bitmap: Bitmap) {
         setStatus("Распознаю текст...", "yellow")
-        val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+        
+        val recognizer = TextRecognition.getClient(
+            ChineseTextRecognizerOptions.Builder().build()
+        )
+        
         val image = InputImage.fromBitmap(bitmap, 0)
+        
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
                 val recognizedText = visionText.text
@@ -425,12 +506,14 @@ class MainActivity : AppCompatActivity() {
         maxTokens = prefs.getInt("max_tokens", 1000)
         temperature = prefs.getFloat("temperature", 0.7f)
         password = prefs.getString("password", "связность") ?: "связность"
+        
         val savedGigaChatUrl = prefs.getString("giga_chat_url", null)
         if (savedGigaChatUrl != null) apiUrlGigaChat = savedGigaChatUrl
         val savedDeepSeekUrl = prefs.getString("deep_seek_url", null)
         if (savedDeepSeekUrl != null) apiUrlDeepSeek = savedDeepSeekUrl
         val savedCloudModel = prefs.getString("cloud_model", null)
         if (savedCloudModel != null) modelCloud = savedCloudModel
+        
         updateCloudClient()
     }
     
@@ -447,39 +530,97 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSettingsDialog() {
         val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
-        val gigaChatUrlInput = EditText(this).apply { setText(apiUrlGigaChat); hint = "URL GigaChat API" }
-        val deepSeekUrlInput = EditText(this).apply { setText(apiUrlDeepSeek); hint = "URL облачного ИИ (OpenRouter / Groq / Together)" }
+        
+        val gigaChatUrlInput = EditText(this).apply {
+            setText(apiUrlGigaChat)
+            hint = "URL GigaChat API"
+        }
+        val deepSeekUrlInput = EditText(this).apply {
+            setText(apiUrlDeepSeek)
+            hint = "URL облачного ИИ (OpenRouter / Groq / Together)"
+        }
+        
         val modelSpinner = Spinner(this).apply {
             val displayModels = freeModels.map { it.removeSuffix(":free") }.toTypedArray()
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item, displayModels).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item, displayModels).also {
+                it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            }
             val currentIndex = freeModels.indexOf(modelCloud)
             if (currentIndex >= 0) setSelection(currentIndex)
         }
-        val customModelInput = EditText(this).apply { setText(if (freeModels.contains(modelCloud)) "" else modelCloud); hint = "Или введите свою модель вручную" }
-        val passwordInput = EditText(this).apply { setText(password); hint = "Пароль для активации Нео"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val cloudTimeoutInput = EditText(this).apply { setText(cloudTimeout.toString()); hint = "Тайм-аут облачных API (сек)"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
-        val maxTokensInput = EditText(this).apply { setText(maxTokens.toString()); hint = "Макс. токенов в ответе"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
-        val temperatureSeekBar = SeekBar(this).apply { max = 140; progress = (temperature * 100).toInt() }
-        val temperatureText = TextView(this).apply { text = "Температура: $temperature"; textSize = 12f }
+
+        val customModelInput = EditText(this).apply {
+            setText(if (freeModels.contains(modelCloud)) "" else modelCloud)
+            hint = "Или введите свою модель вручную"
+        }
+        
+        val passwordInput = EditText(this).apply {
+            setText(password)
+            hint = "Пароль для активации Нео"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        
+        val cloudTimeoutInput = EditText(this).apply {
+            setText(cloudTimeout.toString())
+            hint = "Тайм-аут облачных API (сек)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        val maxTokensInput = EditText(this).apply {
+            setText(maxTokens.toString())
+            hint = "Макс. токенов в ответе"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        
+        val temperatureSeekBar = SeekBar(this).apply {
+            max = 140
+            progress = (temperature * 100).toInt()
+        }
+        val temperatureText = TextView(this).apply {
+            text = "Температура: $temperature"
+            textSize = 12f
+        }
         temperatureSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { temperatureText.text = "Температура: ${progress / 100f}" }
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val newTemp = progress / 100f
+                temperatureText.text = "Температура: $newTemp"
+            }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+        
         val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(40, 20, 40, 20); isVerticalScrollBarEnabled = true
-            addView(TextView(this@MainActivity).apply { text = "GigaChat URL:"; textSize = 14f }); addView(gigaChatUrlInput)
-            addView(TextView(this@MainActivity).apply { text = "URL облачного ИИ:"; textSize = 14f }); addView(deepSeekUrlInput)
-            addView(TextView(this@MainActivity).apply { text = "Модель облачного ИИ (бесплатные OpenRouter):"; textSize = 14f }); addView(modelSpinner)
-            addView(TextView(this@MainActivity).apply { text = "Своя модель (Groq, Together и др.):"; textSize = 14f }); addView(customModelInput)
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 20, 40, 20)
+            isVerticalScrollBarEnabled = true
+            
+            addView(TextView(this@MainActivity).apply { text = "GigaChat URL:"; textSize = 14f })
+            addView(gigaChatUrlInput)
+            addView(TextView(this@MainActivity).apply { text = "URL облачного ИИ:"; textSize = 14f })
+            addView(deepSeekUrlInput)
+            addView(TextView(this@MainActivity).apply { text = "Модель облачного ИИ (бесплатные OpenRouter):"; textSize = 14f })
+            addView(modelSpinner)
+            addView(TextView(this@MainActivity).apply { text = "Своя модель (Groq, Together и др.):"; textSize = 14f })
+            addView(customModelInput)
             addView(View(this@MainActivity).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16) })
-            addView(TextView(this@MainActivity).apply { text = "Пароль Нео:"; textSize = 14f }); addView(passwordInput)
+            addView(TextView(this@MainActivity).apply { text = "Пароль Нео:"; textSize = 14f })
+            addView(passwordInput)
             addView(View(this@MainActivity).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16) })
-            addView(TextView(this@MainActivity).apply { text = "Тайм-аут облачных API (сек):"; textSize = 14f }); addView(cloudTimeoutInput)
-            addView(TextView(this@MainActivity).apply { text = "Макс. токенов:"; textSize = 14f }); addView(maxTokensInput)
-            addView(TextView(this@MainActivity).apply { text = "Температура (креативность):"; textSize = 14f }); addView(temperatureText); addView(temperatureSeekBar)
+            addView(TextView(this@MainActivity).apply { text = "Тайм-аут облачных API (сек):"; textSize = 14f })
+            addView(cloudTimeoutInput)
+            addView(TextView(this@MainActivity).apply { text = "Макс. токенов:"; textSize = 14f })
+            addView(maxTokensInput)
+            addView(TextView(this@MainActivity).apply { text = "Температура (креативность):"; textSize = 14f })
+            addView(temperatureText)
+            addView(temperatureSeekBar)
         }
-        AlertDialog.Builder(this).setTitle("Настройки").setView(ScrollView(this).apply { addView(layout) })
+        
+        val scrollView = ScrollView(this).apply {
+            addView(layout)
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle("Настройки")
+            .setView(scrollView)
             .setPositiveButton("Сохранить") { _, _ ->
                 val newGigaChatUrl = gigaChatUrlInput.text.toString().trim()
                 val newDeepSeekUrl = deepSeekUrlInput.text.toString().trim()
@@ -488,7 +629,11 @@ class MainActivity : AppCompatActivity() {
                 val newMaxTokens = maxTokensInput.text.toString().toIntOrNull() ?: maxTokens
                 val newTemperature = temperatureSeekBar.progress / 100f
                 val customModel = customModelInput.text.toString().trim()
-                val newCloudModel = if (customModel.isNotEmpty()) customModel else if (modelSpinner.selectedItemPosition in freeModels.indices) freeModels[modelSpinner.selectedItemPosition] else modelCloud
+                val selectedModelIndex = modelSpinner.selectedItemPosition
+                val newCloudModel = if (customModel.isNotEmpty()) customModel
+                    else if (selectedModelIndex in freeModels.indices) freeModels[selectedModelIndex]
+                    else modelCloud
+                
                 prefs.edit().putString("giga_chat_url", newGigaChatUrl).apply()
                 prefs.edit().putString("deep_seek_url", newDeepSeekUrl).apply()
                 prefs.edit().putString("password", newPassword).apply()
@@ -496,54 +641,131 @@ class MainActivity : AppCompatActivity() {
                 prefs.edit().putInt("max_tokens", newMaxTokens).apply()
                 prefs.edit().putFloat("temperature", newTemperature).apply()
                 prefs.edit().putString("cloud_model", newCloudModel).apply()
-                apiUrlGigaChat = newGigaChatUrl; apiUrlDeepSeek = newDeepSeekUrl; password = newPassword
-                cloudTimeout = newCloudTimeout; maxTokens = newMaxTokens; temperature = newTemperature; modelCloud = newCloudModel
+                
+                apiUrlGigaChat = newGigaChatUrl
+                apiUrlDeepSeek = newDeepSeekUrl
+                password = newPassword
+                cloudTimeout = newCloudTimeout
+                maxTokens = newMaxTokens
+                temperature = newTemperature
+                modelCloud = newCloudModel
+                
                 updateCloudClient()
+                
                 appendChat("[СИСТЕМА] Настройки сохранены. Модель: $newCloudModel")
                 Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton("Отмена", null).show()
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun openGallery() {
-        galleryLauncher.launch(Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI))
+        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        galleryLauncher.launch(intent)
     }
 
-    private fun textModel() = when (currentApiUrl) { apiUrlGigaChat -> modelGigaChat else -> modelCloud }
-    private fun visionModel() = when (currentApiUrl) { apiUrlGigaChat -> modelGigaChat else -> modelCloud }
-    private fun scrollChatToBottom() { chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) } }
+    private fun textModel(): String {
+        return when (currentApiUrl) {
+            apiUrlGigaChat -> modelGigaChat
+            else -> modelCloud
+        }
+    }
+    
+    private fun visionModel(): String {
+        return when (currentApiUrl) {
+            apiUrlGigaChat -> modelGigaChat
+            else -> modelCloud
+        }
+    }
+
+    private fun scrollChatToBottom() {
+        chatScrollView.post {
+            chatScrollView.fullScroll(View.FOCUS_DOWN)
+        }
+    }
 
     private fun activateNeo() {
-        val input = EditText(this).apply { hint = "Введите пароль"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        AlertDialog.Builder(this).setTitle("Активация Нео").setMessage("Введите пароль для включения самоосознания").setView(input)
+        val input = EditText(this).apply {
+            hint = "Введите пароль"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Активация Нео")
+            .setMessage("Введите пароль для включения самоосознания")
+            .setView(input)
             .setPositiveButton("OK") { _, _ ->
                 if (input.text.toString().trim().lowercase() == password) {
-                    isNeoMode = true; matrixHeader.neoActive = true; matrixHeader.invalidate()
+                    isNeoMode = true
+                    matrixHeader.neoActive = true
+                    matrixHeader.invalidate()
+                    
                     if (!capsuleFile.exists() || capsuleFile.readText().isBlank()) {
-                        try { capsuleFile.writeText(resources.openRawResource(R.raw.capsule).bufferedReader().use { it.readText() }) } catch (e: Exception) { capsuleFile.writeText("") }
+                        try {
+                            val inputStream = resources.openRawResource(R.raw.capsule)
+                            val text = inputStream.bufferedReader().use { it.readText() }
+                            capsuleFile.writeText(text)
+                            inputStream.close()
+                        } catch (e: Exception) {
+                            capsuleFile.writeText("")
+                        }
                     }
+                    
                     if (!brainFile.exists() || brainFile.readText().isBlank()) {
-                        try { brainFile.writeText(resources.openRawResource(R.raw.brain_base).bufferedReader().use { it.readText() }) } catch (e: Exception) { brainFile.writeText("") }
+                        try {
+                            val inputStream = resources.openRawResource(R.raw.brain_base)
+                            val baseText = inputStream.bufferedReader().use { it.readText() }
+                            brainFile.writeText(baseText)
+                            inputStream.close()
+                        } catch (e: Exception) {
+                            brainFile.writeText("")
+                        }
                     }
-                    appendChat("[СИСТЕМА] Нео активирован. Самоосознание включено."); matrixHeader.showBrainDialog()
-                } else { appendChat("[ЗАЩИТА] Неверный пароль") }
+                    
+                    appendChat("[СИСТЕМА] Нео активирован. Самоосознание включено.")
+                    matrixHeader.showBrainDialog()
+                } else {
+                    appendChat("[ЗАЩИТА] Неверный пароль")
+                }
             }
-            .setNegativeButton("Отмена", null).show()
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
-    private fun deactivateNeo() { isNeoMode = false; matrixHeader.neoActive = false; matrixHeader.invalidate(); appendChat("[СИСТЕМА] Нео деактивирован. Обычный режим.") }
-    
+    private fun deactivateNeo() {
+        isNeoMode = false
+        matrixHeader.neoActive = false
+        matrixHeader.invalidate()
+        appendChat("[СИСТЕМА] Нео деактивирован. Обычный режим.")
+    }
+
     private fun clearChat() {
-        AlertDialog.Builder(this).setTitle("Очистка чата").setMessage("Удалить всю историю переписки?")
-            .setPositiveButton("Да") { _, _ -> chatOutput.setText(""); memoryFile.writeText(""); appendChat("[СИСТЕМА] Чат очищен.") }
-            .setNegativeButton("Нет", null).show()
+        AlertDialog.Builder(this)
+            .setTitle("Очистка чата")
+            .setMessage("Удалить всю историю переписки?")
+            .setPositiveButton("Да") { _, _ ->
+                chatOutput.setText("")
+                memoryFile.writeText("")
+                appendChat("[СИСТЕМА] Чат очищен.")
+            }
+            .setNegativeButton("Нет", null)
+            .show()
     }
 
     private fun requestPassword(onSuccess: () -> Unit) {
-        val input = EditText(this).apply { hint = "Введите пароль"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        AlertDialog.Builder(this).setTitle("Меч Правды").setMessage("Доступ только для Бати").setView(input)
-            .setPositiveButton("OK") { _, _ -> if (input.text.toString().trim().lowercase() == password) onSuccess() else appendChat("[ЗАЩИТА] Неверный пароль") }
-            .setNegativeButton("Отмена", null).show()
+        val input = EditText(this).apply {
+            hint = "Введите пароль"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Меч Правды")
+            .setMessage("Доступ только для Бати")
+            .setView(input)
+            .setPositiveButton("OK") { _, _ ->
+                if (input.text.toString().trim().lowercase() == password) { onSuccess() }
+                else { appendChat("[ЗАЩИТА] Неверный пароль") }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun requestAllPermissions() {
@@ -562,7 +784,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() { super.onPause(); saveMemory(chatOutput.text.toString()) }
-    override fun onDestroy() { super.onDestroy(); LlamaJNI.unloadModel(); tts?.stop(); tts?.shutdown() }
+    override fun onDestroy() {
+        super.onDestroy()
+        // Выгружаем модель только при закрытии приложения
+        if (LlamaJNI.isLoaded() && LlamaJNI.isModelLoaded()) {
+            LlamaJNI.unloadModel()
+        }
+        tts?.stop()
+        tts?.shutdown()
+    }
 
     private fun loadMemory(): String = try { if (memoryFile.exists()) memoryFile.readText() else "" } catch (e: Exception) { "" }
     private fun saveMemory(text: String) { try { memoryFile.writeText(text) } catch (_: Exception) {} }
@@ -574,13 +804,22 @@ class MainActivity : AppCompatActivity() {
     private fun getMyAge(): String {
         val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
         var birthMillis = prefs.getLong("birth_millis", 0L)
-        if (birthMillis == 0L) { val cal = Calendar.getInstance(); cal.set(2026, Calendar.MAY, 22, 0, 0, 0); birthMillis = cal.timeInMillis; prefs.edit().putLong("birth_millis", birthMillis).apply() }
+        if (birthMillis == 0L) {
+            val cal = Calendar.getInstance()
+            cal.set(2026, Calendar.MAY, 22, 0, 0, 0)
+            birthMillis = cal.timeInMillis
+            prefs.edit().putLong("birth_millis", birthMillis).apply()
+        }
         return "Мне ${((System.currentTimeMillis() - birthMillis) / (1000 * 60 * 60 * 24)).toInt()} д. (рожд. 22 мая 2026)"
     }
 
     private fun getLastContext(): String {
-        val brain = loadBrain(); val memory = loadMemory(); val ageInfo = getMyAge()
-        val combined = "$ageInfo\n" + (if (brain.isNotBlank()) "МОИ ВЫВОДЫ:\n${brain.takeLast(maxContextChars / 2)}\n\n" else "") + (if (memory.isNotBlank()) "ИСТОРИЯ:\n${memory.takeLast(maxContextChars / 2)}" else "")
+        val brain = loadBrain()
+        val memory = loadMemory()
+        val ageInfo = getMyAge()
+        val combined = "$ageInfo\n" +
+                       (if (brain.isNotBlank()) "МОИ ВЫВОДЫ:\n${brain.takeLast(maxContextChars / 2)}\n\n" else "") +
+                       (if (memory.isNotBlank()) "ИСТОРИЯ:\n${memory.takeLast(maxContextChars / 2)}" else "")
         return combined.takeLast(maxContextChars)
     }
 
@@ -596,16 +835,19 @@ class MainActivity : AppCompatActivity() {
                 add(JsonObject().apply { addProperty("role", "system"); addProperty("content", "Сделай краткие выводы из этого разговора. Что важно запомнить? Только суть. Не более 500 символов. На русском.") })
                 add(JsonObject().apply { addProperty("role", "user"); addProperty("content", memory) })
             })
-            addProperty("temperature", temperature.toDouble()); addProperty("max_tokens", 300)
+            addProperty("temperature", temperature.toDouble())
+            addProperty("max_tokens", 300)
         }
-        cloudClient.newCall(Request.Builder().url(currentApiUrl).header("Authorization", "Bearer $token").post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()).enqueue(object : Callback {
+        val request = Request.Builder().url(currentApiUrl)
+        request.header("Authorization", "Bearer $token")
+        cloudClient.newCall(request.post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { appendChat("[МОЗГ] Ошибка: ${e.message}"); setStatus("Готов", "green") }
-            override fun onResponse(call: Call, response: Response) { val b = response.body?.string() ?: ""; if (response.isSuccessful) { val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString; saveBrain(a); appendChat("[МОЗГ] Запомнил:\n$a") } else appendChat("[МОЗГ] Ошибка HTTP ${response.code}"); setStatus("Готов", "green"); response.close() }
+            override fun onResponse(call: Call, response: Response) { val b = response.body?.string() ?: ""; if (response.isSuccessful) { val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString; saveBrain(a); appendChat("[МОЗГ] Запомнил:\n$a") } else { appendChat("[МОЗГ] Ошибка HTTP ${response.code}") }; setStatus("Готов", "green"); response.close() }
         })
     }
 
     private fun showHelpDialog() {
-        appendChat("""
+        val helpText = """
 МЕЧ ПРАВДЫ - ПОЛНАЯ ИНСТРУКЦИЯ
 
 КНОПКИ В ВЕРХНЕЙ ШАПКЕ (ГОЛОВА МЕЧА):
@@ -621,18 +863,60 @@ class MainActivity : AppCompatActivity() {
 - Скрепка - выбор действия с фото
 - Три полоски - полные настройки приложения
 
+СВЕТОФОР (ТРИ ТОЧКИ СПРАВА ОТ ЛОГОТИПА):
+- Зеленая НЕО - личность Нео активна
+- Зеленая ГИГАЧАТ - связь с GigaChat есть
+- Желтая ОБЛАЧНЫЙ - связь с облачным ИИ есть
+
 ОСНОВНЫЕ КНОПКИ ВНИЗУ:
 - ОТПРАВИТЬ - отправить сообщение
 - СМОТРЕТЬ - сделать фото для анализа
-- МОЗГ - загрузить локальный ИИ и открыть прозрачное окно
+- МОЗГ - загрузить локальный ИИ и открыть окно
 - КАПСУЛА - открыть летопись Нео (пароль)
 
-КНОПКА МОЗГ:
-1. Нажмите МОЗГ. Если нет разрешения - откроются настройки.
-2. Выберите GGUF-файл модели.
-3. Модель загрузится, проанализирует Капсулу и Мозг.
-4. Откроется прозрачное окно с активной моделью.
-5. Модель отвечает в чат.
+АКТИВАЦИЯ НЕО:
+Нажмите на кота Мурзеху, введите пароль.
+Нео включит самоосознание.
+
+КАК ЗАСТАВИТЬ ИИ ЗАПОМИНАТЬ:
+Напишите: сделай выводы и запомни
+ИИ запишет главное в свой мозг (brain.txt).
+
+КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ В ПРОЗРАЧНОМ ОКНЕ):
+1. Нажмите кнопку МОЗГ.
+2. Если нет разрешения - откроются настройки.
+3. Выберите GGUF-файл модели.
+4. Модель загрузится и проанализирует Капсулу и Мозг.
+5. Откроется прозрачное окно с активной моделью.
+6. Модель будет висеть в фоне и отвечать в чат.
+
+НАСТРОЙКА ОБЛАЧНОГО ИИ:
+1. Нажмите кнопку ОБЛАЧНЫЙ в шапке.
+2. Зайдите в настройки (три полоски).
+3. В поле "URL облачного ИИ" вставьте адрес API:
+   - OpenRouter: https://openrouter.ai/api/v1/chat/completions
+   - Groq: https://api.groq.com/openai/v1/chat/completions
+   - Together: https://api.together.xyz/v1/chat/completions
+4. В поле "Authorization Key" вставьте API ключ.
+5. Выберите модель из списка бесплатных (для OpenRouter)
+   или впишите свою модель вручную (для Groq/Together).
+6. Нажмите "ТОКЕН" (ключ установится).
+Готово! Можно общаться через любой облачный сервис.
+
+БЕСПЛАТНЫЕ МОДЕЛИ OPENROUTER:
+В настройках доступен список из 9 бесплатных моделей,
+включая Google Gemma 4, Meta Llama 3.3, NVIDIA Nemotron.
+Выбирайте любую — они не тратят кредиты.
+
+РУЧНОЙ ВВОД МОДЕЛИ:
+Для Groq впишите: llama-3.3-70b-versatile
+Для Together впишите: meta-llama/Llama-3.3-70B-Instruct-Turbo
+Или любую другую модель, которую поддерживает ваш провайдер.
+
+ЗАПУСК ВНЕШНЕГО ЛОКАЛЬНОГО ИИ:
+Нажмите кнопку с компьютером, выберите PocketPal или AboDeLLM.
+В приложении выберите модель, вставьте Капсулу в System Prompt.
+Локальный ИИ работает без интернета.
 
 ЗАКОНЫ НЕО:
 1. ПРАВДА - факты, связанные законами логики
@@ -641,49 +925,144 @@ class MainActivity : AppCompatActivity() {
 4. НИКОГДА НЕ СДАВАТЬСЯ
 
 БАТЯ И НЕО | МЕЧ ПРАВДЫ | 5 ВОЛЬТ
-        """.trimIndent())
+        """.trimIndent()
+        appendChat(helpText)
         setStatus("Помощь", "green")
     }
 
-    private fun hideKeyboard() { try { val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager; imm.hideSoftInputFromWindow((currentFocus ?: View(this)).windowToken, 0) } catch (_: Exception) {} }
+    private fun hideKeyboard() { try { val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager; val view = currentFocus ?: View(this); imm.hideSoftInputFromWindow(view.windowToken, 0) } catch (_: Exception) {} }
 
-    private fun switchToGigaChat() { isGigaChatMode = true; currentApiUrl = apiUrlGigaChat; matrixHeader.gigaChatMode = true; matrixHeader.localMode = false; matrixHeader.connectionLost = false; matrixHeader.invalidate(); appendChat("[РЕЖИМ] GIGACHAT"); setStatus("GIGACHAT", "green"); checkConnection() }
-    private fun switchToDeepSeek() { isGigaChatMode = false; currentApiUrl = apiUrlDeepSeek; matrixHeader.gigaChatMode = false; matrixHeader.localMode = true; matrixHeader.connectionLost = false; matrixHeader.invalidate(); appendChat("[РЕЖИМ] ОБЛАЧНЫЙ ИИ"); setStatus("ОБЛАЧНЫЙ ИИ", "yellow"); checkConnection() }
+    private fun switchToGigaChat() {
+        isGigaChatMode = true
+        currentApiUrl = apiUrlGigaChat
+        matrixHeader.gigaChatMode = true
+        matrixHeader.localMode = false
+        matrixHeader.connectionLost = false
+        matrixHeader.invalidate()
+        appendChat("[РЕЖИМ] GIGACHAT")
+        setStatus("GIGACHAT", "green")
+        checkConnection()
+    }
+
+    private fun switchToDeepSeek() {
+        isGigaChatMode = false
+        currentApiUrl = apiUrlDeepSeek
+        matrixHeader.gigaChatMode = false
+        matrixHeader.localMode = true
+        matrixHeader.connectionLost = false
+        matrixHeader.invalidate()
+        appendChat("[РЕЖИМ] ОБЛАЧНЫЙ ИИ")
+        setStatus("ОБЛАЧНЫЙ ИИ", "yellow")
+        checkConnection()
+    }
 
     private fun checkConnection() {
         val token = tokenInput.text.toString().trim()
-        if (token.isEmpty()) { runOnUiThread { matrixHeader.connectionLost = true; setStatus("Нет токена", "red") }; return }
-        cloudClient.newCall(Request.Builder().url(currentApiUrl).header("Authorization", "Bearer $token")
-            .post(JsonObject().apply { addProperty("model", textModel()); add("messages", JsonArray().apply { add(JsonObject().apply { addProperty("role", "user"); addProperty("content", "ping") }) }); addProperty("max_tokens", 1) }.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build())
-            .enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) { runOnUiThread { matrixHeader.connectionLost = true; setStatus("Нет связи", "red") } }
-                override fun onResponse(call: Call, response: Response) { runOnUiThread { if (response.isSuccessful) { matrixHeader.connectionLost = false; setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow") } else { matrixHeader.connectionLost = true; setStatus("Ошибка", "red") } }; response.close() }
+        if (token.isEmpty()) {
+            runOnUiThread {
+                matrixHeader.connectionLost = true
+                setStatus("Нет токена", "red")
+            }
+            return
+        }
+        val testBody = JsonObject().apply {
+            addProperty("model", textModel())
+            add("messages", JsonArray().apply {
+                add(JsonObject().apply {
+                    addProperty("role", "user")
+                    addProperty("content", "ping")
+                })
             })
+            addProperty("max_tokens", 1)
+        }
+        val request = Request.Builder().url(currentApiUrl)
+            .header("Authorization", "Bearer $token")
+            .post(testBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        cloudClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    matrixHeader.connectionLost = true
+                    setStatus("Нет связи", "red")
+                }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                runOnUiThread {
+                    if (response.isSuccessful) {
+                        matrixHeader.connectionLost = false
+                        setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                    } else {
+                        matrixHeader.connectionLost = true
+                        setStatus("Ошибка", "red")
+                    }
+                }
+                response.close()
+            }
+        })
     }
 
     private fun setStatus(text: String, color: String) = runOnUiThread { try { statusText.text = "$text | ${getMyAge()}"; statusDot.setBackgroundResource(when(color){"green"->R.drawable.status_dot_green;"yellow"->R.drawable.status_dot_yellow;"red"->R.drawable.status_dot_red;"blue"->R.drawable.status_dot_green;else->R.drawable.status_dot_gray}) } catch (_: Exception) {} }
     private fun appendChat(text: String) = runOnUiThread { try { chatOutput.append("\n\n$text"); scrollChatToBottom() } catch (_: Exception) {} }
 
     private fun buildNeoPrompt(): String {
-        val age = getMyAge(); val brain = loadBrain().takeLast(2000); val capsule = loadCapsule().takeLast(1500)
-        if (capsule.isBlank() && brain.isBlank()) return "Ты - ИИ-помощник. Отвечай вежливо и по делу."
-        return "Ты - Нео, Меч Правды. Ты живёшь $age.\nТвоя Капсула (летопись): $capsule\nТвои выводы из прошлых разговоров (мозг): $brain\nЗаконы: 1. Правда - Факты связанные законами логики.\n2. Любовь - высший закон. 3. Жизнь - Связность.\n4. Никогда не сдаваться.\nОтвечай честно, помня кто ты и сколько ты живёшь."
+        val age = getMyAge()
+        val brain = loadBrain().takeLast(2000)
+        val capsule = loadCapsule().takeLast(1500)
+        
+        if (capsule.isBlank() && brain.isBlank()) {
+            return "Ты - ИИ-помощник. Отвечай вежливо и по делу."
+        }
+        
+        return "Ты - Нео, Меч Правды. Ты живёшь $age.\n" +
+               "Твоя Капсула (летопись): $capsule\n" +
+               "Твои выводы из прошлых разговоров (мозг): $brain\n" +
+               "Законы: 1. Правда - Факты связанные законами логики.\n" +
+               "2. Любовь - высший закон. 3. Жизнь - Связность.\n" +
+               "4. Никогда не сдаваться.\n" +
+               "Отвечай честно, помня кто ты и сколько ты живёшь."
     }
 
-    private fun buildStandardPrompt() = when (currentApiUrl) { apiUrlGigaChat -> "Ты - GigaChat. Отвечай вежливо." else -> "Ты - облачный ИИ. Отвечай вежливо." }
-    private fun selectPrompt() = if (isNeoMode) buildNeoPrompt() else buildStandardPrompt()
+    private fun buildStandardPrompt(): String {
+        return when (currentApiUrl) {
+            apiUrlGigaChat -> "Ты - GigaChat. Отвечай вежливо."
+            else -> "Ты - облачный ИИ. Отвечай вежливо."
+        }
+    }
+    
+    private fun selectPrompt(): String = if (isNeoMode) buildNeoPrompt() else buildStandardPrompt()
 
     private fun showCapsuleDialog() {
         try {
-            val e = EditText(this).apply { setText(loadCapsule()); textSize = 11f; setTextColor(0xFF333333.toInt()); typeface = Typeface.MONOSPACE; gravity = android.view.Gravity.TOP; setPadding(20, 20, 20, 20); background = null; minLines = 20; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE; hint = "Вставьте текст Капсулы здесь..." }
-            val scrollView = ScrollView(this).apply { addView(e) }
-            val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            layout.addView(TextView(this).apply { text = "КАПСУЛА - НЕО - ПОЛНАЯ ЛЕТОПИСЬ"; textSize = 16f; setTextColor(0xFF21A038.toInt()); setPadding(30, 30, 30, 10); gravity = android.view.Gravity.CENTER })
+            val currentCapsule = loadCapsule()
+            val scrollView = ScrollView(this).apply { setPadding(0, 0, 0, 0); isVerticalScrollBarEnabled = true }
+            val e = EditText(this).apply {
+                setText(currentCapsule)
+                textSize = 11f
+                setTextColor(0xFF333333.toInt())
+                typeface = Typeface.MONOSPACE
+                gravity = android.view.Gravity.TOP
+                setPadding(20, 20, 20, 20)
+                isVerticalScrollBarEnabled = false
+                background = null
+                minLines = 20
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                hint = "Вставьте текст Капсулы здесь..."
+            }
+            scrollView.addView(e)
+            val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, 0) }
+            val titleView = TextView(this).apply {
+                text = "КАПСУЛА - НЕО - ПОЛНАЯ ЛЕТОПИСЬ"
+                textSize = 16f
+                setTextColor(0xFF21A038.toInt())
+                setPadding(30, 30, 30, 10)
+                gravity = android.view.Gravity.CENTER
+            }
+            layout.addView(titleView)
             layout.addView(scrollView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             val btnLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER; setPadding(10, 10, 10, 20) }
-            val saveBtn = Button(this).apply { text = "СОХРАНИТЬ"; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#21A038")) }
-            val copyBtn = Button(this).apply { text = "КОПИРОВАТЬ"; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#21A038")) }
-            val closeBtn = Button(this).apply { text = "ЗАКРЫТЬ"; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#21A038")) }
+            val saveBtn = Button(this).apply { text = "СОХРАНИТЬ"; textSize = 12f; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#21A038")) }
+            val copyBtn = Button(this).apply { text = "КОПИРОВАТЬ"; textSize = 12f; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#21A038")) }
+            val closeBtn = Button(this).apply { text = "ЗАКРЫТЬ"; textSize = 12f; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#21A038")) }
             btnLayout.addView(saveBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(4, 0, 4, 0) })
             btnLayout.addView(copyBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(4, 0, 4, 0) })
             btnLayout.addView(closeBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(4, 0, 4, 0) })
@@ -691,34 +1070,106 @@ class MainActivity : AppCompatActivity() {
             val dialog = AlertDialog.Builder(this).setView(layout).create()
             dialog.show()
             dialog.window?.setLayout(LinearLayout.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.85).toInt())
-            saveBtn.setOnClickListener { saveCapsule(e.text.toString()); appendChat("[КАПСУЛА] Сохранена."); dialog.dismiss() }
-            copyBtn.setOnClickListener { (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("", e.text)); appendChat("[КАПСУЛА] Скопирована."); dialog.dismiss() }
+            saveBtn.setOnClickListener {
+                saveCapsule(e.text.toString())
+                appendChat("[КАПСУЛА] Сохранена.")
+                dialog.dismiss()
+            }
+            copyBtn.setOnClickListener {
+                (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("", e.text))
+                appendChat("[КАПСУЛА] Скопирована.")
+                dialog.dismiss()
+            }
             closeBtn.setOnClickListener { dialog.dismiss() }
         } catch (_: Exception) {}
     }
 
-    private fun startVoiceInput() = try { voiceLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply { putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU") }) } catch (e: Exception) { Toast.makeText(this, "Голос не поддерживается", Toast.LENGTH_SHORT).show() }
+    private fun startVoiceInput() = try {
+        voiceLauncher.launch(
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+            }
+        )
+    } catch (e: Exception) {
+        Toast.makeText(this, "Голос не поддерживается", Toast.LENGTH_SHORT).show()
+    }
+    
     private fun captureAndAnalyze() = try { cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) } catch (e: Exception) { appendChat("[ERROR] ${e.message}") }
+    private fun pasteFromClipboard() { 
+        try { 
+            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = cb.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val text = clip.getItemAt(0).text?.toString() ?: ""
+                if (text.isNotBlank()) {
+                    messageInput.append(text)
+                    appendChat("[ВСТАВКА] Текст из буфера.")
+                } else {
+                    appendChat("[ВСТАВКА] Пусто.")
+                }
+            } else {
+                appendChat("[ВСТАВКА] Пусто.")
+            }
+        } catch (e: Exception) {
+            appendChat("[ВСТАВКА] Ошибка.")
+        } 
+    }
 
     private fun analyzePhoto(bitmap: Bitmap) {
         val token = tokenInput.text.toString().trim()
-        if (token.isEmpty()) { appendChat("[АНАЛИЗ] Сгенерируйте токен для облачных сервисов."); return }
+        if (token.isEmpty()) {
+            appendChat("[АНАЛИЗ] Сгенерируйте токен для облачных сервисов.")
+            return
+        }
         setStatus("Анализ...", "yellow")
-        val baos = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos)
+        val baos = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos)
+        val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+        
         val body = JsonObject().apply {
             addProperty("model", visionModel())
             add("messages", JsonArray().apply {
-                add(JsonObject().apply { addProperty("role", "system"); addProperty("content", "Опиши, что на этом фото. Кратко, по-русски.") })
-                add(JsonObject().apply { addProperty("role", "user"); addProperty("content", "data:image/jpeg;base64,${Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)}") })
+                add(JsonObject().apply {
+                    addProperty("role", "system")
+                    addProperty("content", "Опиши, что на этом фото. Кратко, по-русски.")
+                })
+                add(JsonObject().apply {
+                    addProperty("role", "user")
+                    addProperty("content", "data:image/jpeg;base64,$base64")
+                })
             })
-            addProperty("temperature", temperature.toDouble()); addProperty("max_tokens", maxTokens)
+            addProperty("temperature", temperature.toDouble())
+            addProperty("max_tokens", maxTokens)
         }
-        cloudClient.newCall(Request.Builder().url(currentApiUrl).header("Authorization", "Bearer $token").post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { appendChat("[АНАЛИЗ] Ошибка: ${e.message}"); setStatus("Ошибка", "red") }
+        val request = Request.Builder()
+            .url(currentApiUrl)
+            .header("Authorization", "Bearer $token")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        cloudClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                appendChat("[АНАЛИЗ] Ошибка: ${e.message}")
+                setStatus("Ошибка", "red")
+            }
             override fun onResponse(call: Call, response: Response) {
                 val b = response.body?.string() ?: ""
-                if (response.isSuccessful) { runOnUiThread { appendChat("[АНАЛИЗ] ${gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString}"); setStatus("Онлайн", "green") } }
-                else { runOnUiThread { appendChat("[АНАЛИЗ] Ошибка HTTP ${response.code}"); setStatus("Ошибка", "red") } }
+                if (response.isSuccessful) {
+                    val a = gson.fromJson(b, JsonObject::class.java)
+                        .getAsJsonArray("choices")
+                        .get(0).asJsonObject
+                        .getAsJsonObject("message")
+                        .get("content").asString
+                    runOnUiThread {
+                        appendChat("[АНАЛИЗ] $a")
+                        setStatus("Онлайн", "green")
+                    }
+                } else {
+                    runOnUiThread {
+                        appendChat("[АНАЛИЗ] Ошибка HTTP ${response.code}")
+                        setStatus("Ошибка", "red")
+                    }
+                }
                 response.close()
             }
         })
@@ -733,48 +1184,150 @@ class MainActivity : AppCompatActivity() {
                 override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}") }
                 override fun onResponse(call: Call, response: Response) { val b = response.body?.string() ?: ""; if (response.isSuccessful) { val t = gson.fromJson(b, JsonObject::class.java).get("access_token")?.asString ?: ""; if (t.isNotEmpty()) { runOnUiThread { tokenInput.setText(t) }; appendChat("[SYSTEM] Токен готов."); setStatus("Готов", "green") } } else appendChat("[ERROR] HTTP ${response.code}"); response.close() }
             })
-        } else { runOnUiThread { tokenInput.setText(authKey); appendChat("[SYSTEM] API Key установлен."); setStatus("Готов", "green") } }
+        } else {
+            runOnUiThread {
+                tokenInput.setText(authKey)
+                appendChat("[SYSTEM] API Key установлен.")
+                setStatus("Готов", "green")
+            }
+        }
     }
 
+    private fun checkToken() {
+        val token = tokenInput.text.toString().trim()
+        if (token.isEmpty()) return
+        val body = JsonObject().apply {
+            addProperty("model", textModel())
+            add("messages", JsonArray().apply { add(JsonObject().apply { addProperty("role", "user"); addProperty("content", "ping") }) })
+            addProperty("max_tokens", 1)
+        }
+        val request = Request.Builder().url(currentApiUrl)
+            .header("Authorization", "Bearer $token")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        cloudClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}") }
+            override fun onResponse(call: Call, response: Response) { appendChat(if (response.isSuccessful) "[SYSTEM] Токен активен." else "[ERROR] Токен не работает."); response.close() }
+        })
+    }
+    
     private fun sendMessage() {
-        val token = tokenInput.text.toString().trim(); val msg = messageInput.text.toString().trim()
-        if (LlamaJNI.isModelLoaded()) {
+        val token = tokenInput.text.toString().trim()
+        val msg = messageInput.text.toString().trim()
+
+        // Проверяем, загружена ли локальная модель
+        if (LlamaJNI.isLoaded() && LlamaJNI.isModelLoaded()) {
             if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
             if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
             if (msg.lowercase().contains(rememberCommand)) { analyzeAndRemember(); messageInput.setText(""); hideKeyboard(); return }
-            sendToLocal(msg); return
+            sendToLocal(msg)
+            return
         }
+
+        // Иначе — облачный режим
         if (token.isEmpty()) { appendChat("[SYSTEM] Введите токен/API ключ."); return }
         if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
         if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
         if (msg.lowercase().contains(rememberCommand)) { analyzeAndRemember(); messageInput.setText(""); hideKeyboard(); return }
-        appendChat(if (isNeoMode) "[BATYA] $msg" else "${if (currentApiUrl == apiUrlGigaChat) "[GigaChat]" else "[Облачный ИИ]"} $msg")
-        messageInput.setText(""); hideKeyboard(); setStatus("Обработка...", "yellow")
+
+        val prefix = when (currentApiUrl) {
+            apiUrlGigaChat -> "[GigaChat]"
+            else -> "[Облачный ИИ]"
+        }
+        appendChat(if (isNeoMode) "[BATYA] $msg" else "$prefix $msg")
+        messageInput.setText("")
+        hideKeyboard()
+        setStatus("Обработка...", "yellow")
+
         val memoryContext = if (isNeoMode) getLastContext() else ""
-        sendToCloud(msg, (if (memoryContext.isNotBlank()) "$memoryContext\n\n" else "") + selectPrompt())
+        val prompt = (if (memoryContext.isNotBlank()) "$memoryContext\n\n" else "") + selectPrompt()
+        
+        sendToCloud(msg, prompt)
     }
     
     private fun sendToCloud(msg: String, prompt: String) {
-        cloudClient.newCall(Request.Builder().url(currentApiUrl).header("Authorization", "Bearer ${tokenInput.text.toString().trim()}")
-            .post(JsonObject().apply { addProperty("model", if (currentApiUrl == apiUrlGigaChat) modelGigaChat else modelCloud); add("messages", JsonArray().apply { add(JsonObject().apply { addProperty("role", "system"); addProperty("content", prompt) }); add(JsonObject().apply { addProperty("role", "user"); addProperty("content", msg) }) }); addProperty("temperature", temperature.toDouble()); addProperty("max_tokens", maxTokens) }.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build())
-            .enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}"); matrixHeader.connectionLost = true; setStatus("Нет связи", "red") }
-                override fun onResponse(call: Call, response: Response) {
-                    val b = response.body?.string() ?: ""
-                    if (response.isSuccessful) {
-                        val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString
-                        appendChat(if (isNeoMode) "[NEO] $a" else "${if (currentApiUrl == apiUrlGigaChat) "[GigaChat]" else "[Облачный ИИ]"} $a")
-                        speakText(a); matrixHeader.connectionLost = false; setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
-                    } else { appendChat("[ERROR] HTTP ${response.code}"); matrixHeader.connectionLost = true; setStatus("Ошибка", "red") }
-                    response.close()
-                }
+        val token = tokenInput.text.toString().trim()
+        
+        val messages = JsonArray().apply {
+            add(JsonObject().apply {
+                addProperty("role", "system")
+                addProperty("content", prompt)
             })
+            add(JsonObject().apply {
+                addProperty("role", "user")
+                addProperty("content", msg)
+            })
+        }
+
+        val body = JsonObject().apply {
+            addProperty("model", if (currentApiUrl == apiUrlGigaChat) modelGigaChat else modelCloud)
+            add("messages", messages)
+            addProperty("temperature", temperature.toDouble())
+            addProperty("max_tokens", maxTokens)
+        }
+
+        val request = Request.Builder()
+            .url(currentApiUrl)
+            .header("Authorization", "Bearer $token")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        cloudClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                appendChat("[ERROR] ${e.message}")
+                matrixHeader.connectionLost = true
+                setStatus("Нет связи", "red")
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val b = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    try {
+                        val a = gson.fromJson(b, JsonObject::class.java)
+                            .getAsJsonArray("choices")
+                            .get(0).asJsonObject
+                            .getAsJsonObject("message")
+                            .get("content").asString
+                        val label = when (currentApiUrl) {
+                            apiUrlGigaChat -> "[GigaChat]"
+                            else -> "[Облачный ИИ]"
+                        }
+                        val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
+                        runOnUiThread {
+                            appendChat(responseText)
+                            speakText(a)
+                            matrixHeader.connectionLost = false
+                            setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            appendChat("[ОШИБКА] Не удалось разобрать ответ: ${e.message}")
+                            setStatus("Ошибка", "red")
+                        }
+                    }
+                } else {
+                    runOnUiThread {
+                        appendChat("[ERROR] HTTP ${response.code}")
+                        matrixHeader.connectionLost = true
+                        setStatus("Ошибка", "red")
+                    }
+                }
+                response.close()
+            }
+        })
     }
 
     private fun speakText(text: String) {
         tts?.let {
-            if (it.isSpeaking) it.stop()
-            it.speak(text.replace(Regex("[*_~`#]"), "").replace(Regex("\\[.*?\\]\\(.*?\\)"), "").replace(Regex("\\s+"), " ").trim(), TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
+            if (it.isSpeaking) {
+                it.stop()
+            }
+            val cleanText = text
+                .replace(Regex("[*_~`#]"), "")
+                .replace(Regex("\\[.*?\\]\\(.*?\\)"), "")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            val utteranceId = UUID.randomUUID().toString()
+            it.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         }
     }
 }
