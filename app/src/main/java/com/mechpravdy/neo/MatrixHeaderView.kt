@@ -137,7 +137,6 @@ class MatrixHeaderView @JvmOverloads constructor(
         super.onAttachedToWindow()
         startAnimation()
         memoryHandler.post(memoryUpdateRunnable)
-        // Загружаем изображение Мурзика только когда View прикреплено к окну
         try {
             murzikBitmap = BitmapFactory.decodeResource(resources, R.drawable.murzik)
         } catch (_: Exception) {}
@@ -147,7 +146,6 @@ class MatrixHeaderView @JvmOverloads constructor(
         super.onDetachedFromWindow()
         stopAnimation()
         stopMemoryMonitoring()
-        // Освобождаем bitmap
         murzikBitmap?.recycle()
         murzikBitmap = null
     }
@@ -174,7 +172,7 @@ class MatrixHeaderView @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val desiredHeight = (125 * resources.displayMetrics.density).toInt()
+        val desiredHeight = (165 * resources.displayMetrics.density).toInt()
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(desiredHeight, MeasureSpec.EXACTLY))
     }
 
@@ -241,8 +239,6 @@ class MatrixHeaderView @JvmOverloads constructor(
             (w + memoryWidth) / 2f,
             murzikRect.bottom + 6f + memoryHeight
         )
-
-        // Загрузка изображения Мурзика перенесена в onAttachedToWindow
     }
 
     private fun generateLine() = if (Random.nextFloat() < 0.15f) { words[Random.nextInt(words.size)] } else { CharArray(columns) { if (Random.nextFloat() > 0.5f) '0' else '1' }.joinToString("") }
@@ -387,7 +383,7 @@ class MatrixHeaderView @JvmOverloads constructor(
         val dotRadius = 14f
         val dotSpacing = 30f
         val trafficX = logoRect.right + 16f
-        val trafficY = logoRect.centerY() - dotSpacing
+        val trafficY = logoRect.top + 20f
 
         val dotPaint = Paint().apply { isAntiAlias = true }
         dotPaint.color = if (neoActive) Color.parseColor("#00FF00") else Color.parseColor("#555555")
