@@ -5,8 +5,6 @@ import android.os.FileObserver
 import android.os.Process
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
-import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
-import com.facebook.react.defaults.DefaultReactActivityDelegate
 import java.io.File
 
 class BrainFloatingWindow : ReactActivity() {
@@ -15,8 +13,16 @@ class BrainFloatingWindow : ReactActivity() {
 
     override fun getMainComponentName(): String = "FloatingBrain"
 
-    override fun createReactActivityDelegate(): ReactActivityDelegate =
-        DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+    // ИСПРАВЛЕНО: Используем базовый делегат, безопасный для мультипроцессного запуска
+    override fun createReactActivityDelegate(): ReactActivityDelegate {
+        return object : ReactActivityDelegate(this, mainComponentName) {
+            override fun getLaunchOptions(): Bundle? {
+                val bundle = Bundle()
+                // Сюда можно передать базовые параметры, если нужно
+                return bundle
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
