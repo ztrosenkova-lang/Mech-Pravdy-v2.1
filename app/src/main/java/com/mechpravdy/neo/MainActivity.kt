@@ -215,8 +215,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             
-            loadSettings()
-            
             matrixHeader = findViewById(R.id.matrixHeader)
             authKeyInput = findViewById(R.id.authKeyInput)
             generateButton = findViewById(R.id.generateButton)
@@ -333,6 +331,8 @@ class MainActivity : AppCompatActivity() {
             capsuleButton.setOnClickListener { hideKeyboard(); requestPassword { showCapsuleDialog() } }
             matrixHeader.onMurzikClick = { activateNeo() }
 
+            loadSettings()
+
             requestAllPermissions()
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
     }
@@ -372,9 +372,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         brainObserver?.stopWatching()
         brainObserver = null
-        try {
-            LlamaJNI.unloadModel()
-        } catch (_: Throwable) {}
         tts?.stop()
         tts?.shutdown()
     }
