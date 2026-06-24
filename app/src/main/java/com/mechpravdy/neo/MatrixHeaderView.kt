@@ -100,10 +100,8 @@ class MatrixHeaderView @JvmOverloads constructor(
     private val handler = Handler(Looper.getMainLooper())
     private val updateRunnable = object : Runnable {
         override fun run() {
-            if (isAttachedToWindow) {
-                postInvalidate()
-                handler.postDelayed(this, 50)
-            }
+            invalidate()
+            handler.postDelayed(this, 50)
         }
     }
     
@@ -111,43 +109,25 @@ class MatrixHeaderView @JvmOverloads constructor(
     private val memoryHandler = Handler(Looper.getMainLooper())
     private val memoryUpdateRunnable = object : Runnable {
         override fun run() {
-            if (isAttachedToWindow) {
-                val runtime = Runtime.getRuntime()
-                val javaUsed = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
-                val javaMax = runtime.maxMemory() / (1024 * 1024)
-                
-                val nativeHeapSize = Debug.getNativeHeapSize() / (1024 * 1024)
-                val nativeHeapFree = Debug.getNativeHeapFreeSize() / (1024 * 1024)
-                val nativeUsed = nativeHeapSize - nativeHeapFree
-                
-                val totalUsed = javaUsed + nativeUsed
-                
-                memoryText = "$javaUsed+$nativeUsed/$javaMax MB"
-                postInvalidate()
-                memoryHandler.postDelayed(this, 1000)
-            }
+            val runtime = Runtime.getRuntime()
+            val javaUsed = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
+            val javaMax = runtime.maxMemory() / (1024 * 1024)
+            
+            val nativeHeapSize = Debug.getNativeHeapSize() / (1024 * 1024)
+            val nativeHeapFree = Debug.getNativeHeapFreeSize() / (1024 * 1024)
+            val nativeUsed = nativeHeapSize - nativeHeapFree
+            
+            val totalUsed = javaUsed + nativeUsed
+            
+            memoryText = "$javaUsed+$nativeUsed/$javaMax MB"
+            invalidate()
+            memoryHandler.postDelayed(this, 1000)
         }
     }
 
     init {
-        // Анимация и мониторинг запускаются только после прикрепления к окну
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
         startAnimation()
         memoryHandler.post(memoryUpdateRunnable)
-        try {
-            murzikBitmap = BitmapFactory.decodeResource(resources, R.drawable.murzik)
-        } catch (_: Exception) {}
-    }
-
-    override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
-        stopAnimation()
-        stopMemoryMonitoring()
-        murzikBitmap?.recycle()
-        murzikBitmap = null
     }
     
     fun stopMemoryMonitoring() {
@@ -155,7 +135,6 @@ class MatrixHeaderView @JvmOverloads constructor(
     }
 
     fun startAnimation() {
-        handler.removeCallbacks(updateRunnable)
         handler.post(updateRunnable)
     }
 
@@ -172,7 +151,7 @@ class MatrixHeaderView @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val desiredHeight = (165 * resources.displayMetrics.density).toInt()
+        val desiredHeight = (105 * resources.displayMetrics.density).toInt()
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(desiredHeight, MeasureSpec.EXACTLY))
     }
 
@@ -239,6 +218,10 @@ class MatrixHeaderView @JvmOverloads constructor(
             (w + memoryWidth) / 2f,
             murzikRect.bottom + 6f + memoryHeight
         )
+
+        try {
+            murzikBitmap = BitmapFactory.decodeResource(resources, R.drawable.murzik)
+        } catch (_: Exception) {}
     }
 
     private fun generateLine() = if (Random.nextFloat() < 0.15f) { words[Random.nextInt(words.size)] } else { CharArray(columns) { if (Random.nextFloat() > 0.5f) '0' else '1' }.joinToString("") }
@@ -383,7 +366,7 @@ class MatrixHeaderView @JvmOverloads constructor(
         val dotRadius = 14f
         val dotSpacing = 30f
         val trafficX = logoRect.right + 16f
-        val trafficY = logoRect.top + 20f
+        val trafficY = logoRect.centerY() - dotSpacing
 
         val dotPaint = Paint().apply { isAntiAlias = true }
         dotPaint.color = if (neoActive) Color.parseColor("#00FF00") else Color.parseColor("#555555")
