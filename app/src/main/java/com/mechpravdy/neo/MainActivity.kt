@@ -292,10 +292,16 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
-                val serviceIntent = Intent(this@MainActivity, BrainOverlayService::class.java)
+                // ДИНАМИЧЕСКАЯ ИЗОЛЯЦИЯ: Система не видит Сервис до клика по кнопке!
+                val serviceIntent = Intent()
+                serviceIntent.setClassName(this@MainActivity, "com.mechpravdy.neo.BrainOverlayService")
                 
                 if (checkButton.text.toString() == "ВЫКЛ МОЗГ" || checkButton.text.toString() == "ЗАГРУЗКА...") {
                     stopService(serviceIntent)
+                    
+                    // Выключаем слежку обратно:
+                    brainObserver?.stopWatching()
+                    
                     checkButton.text = "МОЗГ"
                     appendChat("[МОЗГ] Локальный ИИ отключен. Модель выгружена из памяти.")
                     switchToGigaChat()
@@ -306,6 +312,10 @@ class MainActivity : AppCompatActivity() {
                     val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
                     if (savedPath != null && File(savedPath).exists()) {
                         startService(serviceIntent)
+                        
+                        // Запускаем слежку за файлом ТОЛЬКО СЕЙЧАС:
+                        brainObserver?.startWatching()
+                        
                         checkButton.text = "ВЫКЛ МОЗГ"
                         appendChat("[МОЗГ] Процесс запущен в отдельном окне. Загрузка GGUF...")
                     } else {
@@ -347,7 +357,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            brainObserver?.startWatching()
+            // Слежка запускается только при клике на кнопку МОЗГ
         } catch (_: Exception) {}
     }
 
