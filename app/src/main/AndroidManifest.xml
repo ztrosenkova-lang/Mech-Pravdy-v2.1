@@ -47,6 +47,12 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
+        <!-- ===== ИЗОЛИРОВАННЫЙ СЕРВИС МОЗГА ===== -->
+        <service 
+            android:name=".BrainOverlayService" 
+            android:process=":brain_process" 
+            android:exported="false" />
+
         <!-- ===== ПЛАВАЮЩЕЕ ОКНО REACT NATIVE (ACTIVITY) ===== -->
         <activity
             android:name=".BrainFloatingWindow"
