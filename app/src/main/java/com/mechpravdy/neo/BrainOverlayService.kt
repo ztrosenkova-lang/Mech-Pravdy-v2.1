@@ -21,6 +21,21 @@ class BrainOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val path = intent?.getStringExtra("MODEL_PATH")
+        if (path != null && java.io.File(path).exists()) {
+            Thread {
+                try {
+                    val ok = LlamaJNI.loadModel(path, 2048)
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        floatingView?.text = if (ok) "НЕО: ГОТОВ" else "НЕО: ОШИБКА"
+                    }
+                } catch (_: Exception) {}
+            }.start()
+        }
+        return START_NOT_STICKY
+    }
+
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
