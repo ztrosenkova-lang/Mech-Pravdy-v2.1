@@ -49,16 +49,6 @@ import javax.net.ssl.X509TrustManager
 
 class MainActivity : AppCompatActivity() {
 
-    companion object {
-        init {
-            try {
-                System.loadLibrary("llama")
-            } catch (e: UnsatisfiedLinkError) {
-                android.util.Log.e("MECH_LOG", "Не удалось загрузить нативную библиотеку: ${e.message}")
-            }
-        }
-    }
-
     private var apiUrlGigaChat = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
     private val authUrl = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
     private var apiUrlDeepSeek = "https://openrouter.ai/api/v1/chat/completions"
@@ -368,6 +358,25 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) { brainFile.writeText("") }
             }
 
+            // СВЯЗНОСТЬ: Перехват ответов от изолированного процесса Мозга
+            val brainResponseFile = File(filesDir, "brain_response.txt")
+            if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
+
+            val fileObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
+                override fun onEvent(event: Int, path: String?) {
+                    val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
+                    if (responseText.isNotBlank()) {
+                        runOnUiThread {
+                            appendChat("[NEO] $responseText")
+                            speakText(responseText)
+                            setStatus("Онлайн", "green")
+                            try { brainResponseFile.writeText("") } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+            fileObserver.startWatching()
+
             requestAllPermissions()
         } catch (e: Throwable) {
             android.util.Log.e("MECH_LOG", "Критический сбой инициализации в onCreate: ", e)
@@ -494,22 +503,15 @@ class MainActivity : AppCompatActivity() {
     private fun sendToLocal(msg: String) {
         setStatus("Думаю...", "yellow")
         appendChat("[BATYA] $msg")
-        messageInput.setText("")
-        val memoryContext = if (isNeoMode) getLastContext() else ""
-        val prompt = (if (memoryContext.isNotBlank()) "$memoryContext\n\n" else "") + selectPrompt()
-        val fullPrompt = "$prompt\n\nПользователь: $msg\nНео:"
+        runOnUiThread { messageInput.setText("") }
+
         Thread {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-            val response = LlamaJNI.generate(fullPrompt, 512)
-            runOnUiThread {
-                if (response.isNotBlank() && !response.contains("Ошибка")) {
-                    appendChat("[NEO] $response")
-                    speakText(response)
-                    setStatus("Готов", "green")
-                } else {
-                    appendChat("[МОЗГ] Ошибка генерации: $response")
-                    setStatus("Ошибка", "red")
-                }
+            try {
+                val queryFile = File(filesDir, "brain_query.txt")
+                val fullContext = getLastContext() + "\n\nПользователь: $msg\nНео:"
+                queryFile.writeText(fullContext)
+            } catch (e: Exception) {
+                android.util.Log.e("MECH_LOG", "Ошибка передачи запроса Мозгу: ${e.message}")
             }
         }.start()
     }
