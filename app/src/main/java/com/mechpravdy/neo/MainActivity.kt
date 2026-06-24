@@ -362,6 +362,9 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         brainObserver?.stopWatching()
         brainObserver = null
+        try {
+            LlamaJNI.unloadModel()
+        } catch (_: Throwable) {}
         tts?.stop()
         tts?.shutdown()
     }
