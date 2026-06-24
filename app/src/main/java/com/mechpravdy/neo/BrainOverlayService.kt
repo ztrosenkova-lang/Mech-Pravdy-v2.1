@@ -25,7 +25,7 @@ class BrainOverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        // Создаем простое полупрозрачное плавающее окно поверх всех экранов
+        // Создаем полупрозрачное плавающее окошко (как в YouTube PIP)
         floatingView = TextView(this).apply {
             text = "НЕО: МОЗГ"
             setBackgroundColor(Color.parseColor("#CC000000")) // Полупрозрачный черный
@@ -54,21 +54,20 @@ class BrainOverlayService : Service() {
 
         windowManager.addView(floatingView, params)
 
-        // Инициализируем файлы обмена данными
         val queryFile = File(filesDir, "brain_query.txt")
         val responseFile = File(filesDir, "brain_response.txt")
 
-        // Следим за командами от главного чата Меча
+        // Слушаем команды из главного чата Меча
         queryObserver = object : FileObserver(queryFile.path, CLOSE_WRITE) {
             override fun onEvent(event: Int, path: String?) {
                 val queryText = try { queryFile.readText().trim() } catch (_: Exception) { "" }
                 if (queryText.isNotBlank()) {
-                    try { queryFile.writeText("") } catch (_: Exception) {} // Чистим запрос
+                    try { queryFile.writeText("") } catch (_: Exception) {} // Чистим файл запроса
 
                     Thread {
                         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
                         try {
-                            // Проверяем JNI и генерируем ответ из GGUF
+                            // Если C++ код загружен, запускаем локальный ИИ GGUF
                             val aiResponse = if (LlamaJNI.isModelLoaded()) {
                                 LlamaJNI.generate(queryText, 512)
                             } else {
@@ -90,7 +89,7 @@ class BrainOverlayService : Service() {
         queryObserver?.stopWatching()
         floatingView?.let { windowManager.removeView(it) }
         
-        // Выгружаем модель из памяти этого процесса при закрытии сервиса
+        // ВЫГРУЗКА ИЗ ПАМЯТИ: Полностью очищаем ОЗУ при выключении кнопки
         try {
             LlamaJNI.unloadModel()
         } catch (_: Exception) {}
@@ -99,7 +98,9 @@ class BrainOverlayService : Service() {
     companion object {
         init {
             try {
-                System.loadLibrary("llama") // Загрузка C++ ядра строго внутри процесса Мозга
+                // ВНИМАНИЕ: Для первого теста холодного старта можно закомментировать строку ниже (поставить //),
+                // чтобы проверить, что само приложение открывается без нативных сбоев!
+                System.loadLibrary("llama") 
             } catch (e: UnsatisfiedLinkError) {
                 android.util.Log.e("MECH_BRAIN", "Ошибка линковки JNI: ${e.message}")
             }
