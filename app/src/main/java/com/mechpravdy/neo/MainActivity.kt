@@ -98,6 +98,7 @@ class MainActivity : AppCompatActivity() {
     private val maxContextChars = 32000
 
     private var tts: TextToSpeech? = null
+    private var brainObserver: android.os.FileObserver? = null
 
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -275,11 +276,10 @@ class MainActivity : AppCompatActivity() {
                     .show()
             }
             
-            // ===== КНОПКА МОЗГ (НОВАЯ ЛОГИКА: СЕРВИС + ФАЙЛОВЫЙ МОСТ) =====
+            // ===== КНОПКА МОЗГ =====
             checkButton.setOnClickListener {
                 hideKeyboard()
 
-                // 1. Проверяем право на отображение поверх других окон
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this@MainActivity)) {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Требуется разрешение")
@@ -292,17 +292,14 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
-                // 2. Логика ВКЛ / ВЫКЛ локального ИИ
                 val serviceIntent = Intent(this@MainActivity, BrainOverlayService::class.java)
                 
                 if (checkButton.text.toString() == "ВЫКЛ МОЗГ" || checkButton.text.toString() == "ЗАГРУЗКА...") {
-                    // ПОВТОРНОЕ НАЖАТИЕ: Останавливаем сервис
                     stopService(serviceIntent)
                     checkButton.text = "МОЗГ"
                     appendChat("[МОЗГ] Локальный ИИ отключен. Модель выгружена из памяти.")
                     switchToGigaChat()
                 } else {
-                    // ПЕРВОЕ НАЖАТИЕ: Запуск изолированного GGUF процесса
                     checkButton.text = "ЗАГРУЗКА..."
                     setStatus("Запуск процесса...", "yellow")
                     
@@ -310,7 +307,7 @@ class MainActivity : AppCompatActivity() {
                     if (savedPath != null && File(savedPath).exists()) {
                         startService(serviceIntent)
                         checkButton.text = "ВЫКЛ МОЗГ"
-                        appendChat("[МОЗГ] Процесс запущен в окне оверлея. Загрузка GGUF...")
+                        appendChat("[МОЗГ] Процесс запущен в отдельном окне. Загрузка GGUF...")
                     } else {
                         checkButton.text = "МОЗГ"
                         AlertDialog.Builder(this@MainActivity)
@@ -326,11 +323,17 @@ class MainActivity : AppCompatActivity() {
             capsuleButton.setOnClickListener { hideKeyboard(); requestPassword { showCapsuleDialog() } }
             matrixHeader.onMurzikClick = { activateNeo() }
 
-            // СВЯЗНОСТЬ: Слушаем ответы от параллельного процесса Мозга
+            requestAllPermissions()
+        } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        try {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
-
-            val fileObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
+            
+            brainObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
                     if (responseText.isNotBlank()) {
@@ -344,10 +347,23 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            fileObserver.startWatching()
+            brainObserver?.startWatching()
+        } catch (_: Exception) {}
+    }
 
-            requestAllPermissions()
-        } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
+    override fun onPause() {
+        super.onPause()
+        brainObserver?.stopWatching()
+        brainObserver = null
+        saveMemory(chatOutput.text.toString())
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        brainObserver?.stopWatching()
+        brainObserver = null
+        tts?.stop()
+        tts?.shutdown()
     }
 
     // ===== НОВЫЙ МЕТОД: ОТПРАВКА В ЛОКАЛЬНУЮ МОДЕЛЬ ЧЕРЕЗ ФАЙЛ =====
@@ -692,13 +708,6 @@ class MainActivity : AppCompatActivity() {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
         if (permissions.isNotEmpty()) ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
-    }
-
-    override fun onPause() { super.onPause(); saveMemory(chatOutput.text.toString()) }
-    override fun onDestroy() {
-        super.onDestroy()
-        tts?.stop()
-        tts?.shutdown()
     }
 
     private fun loadMemory(): String = try { if (memoryFile.exists()) memoryFile.readText() else "" } catch (e: Exception) { "" }
