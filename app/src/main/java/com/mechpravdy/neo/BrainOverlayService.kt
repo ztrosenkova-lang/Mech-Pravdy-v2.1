@@ -25,10 +25,10 @@ class BrainOverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        // Создаем полупрозрачное плавающее окошко (как в YouTube PIP)
+        // Создаем полупрозрачное окошко
         floatingView = TextView(this).apply {
             text = "НЕО: МОЗГ"
-            setBackgroundColor(Color.parseColor("#CC000000")) // Полупрозрачный черный
+            setBackgroundColor(Color.parseColor("#CC000000"))
             setTextColor(Color.GREEN)
             setPadding(16, 16, 16, 16)
             textSize = 12f
@@ -57,17 +57,15 @@ class BrainOverlayService : Service() {
         val queryFile = File(filesDir, "brain_query.txt")
         val responseFile = File(filesDir, "brain_response.txt")
 
-        // Слушаем команды из главного чата Меча
         queryObserver = object : FileObserver(queryFile.path, CLOSE_WRITE) {
             override fun onEvent(event: Int, path: String?) {
                 val queryText = try { queryFile.readText().trim() } catch (_: Exception) { "" }
                 if (queryText.isNotBlank()) {
-                    try { queryFile.writeText("") } catch (_: Exception) {} // Чистим файл запроса
+                    try { queryFile.writeText("") } catch (_: Exception) {}
 
                     Thread {
                         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
                         try {
-                            // Если C++ код загружен, запускаем локальный ИИ GGUF
                             val aiResponse = if (LlamaJNI.isModelLoaded()) {
                                 LlamaJNI.generate(queryText, 512)
                             } else {
@@ -82,6 +80,17 @@ class BrainOverlayService : Service() {
             }
         }
         queryObserver?.startWatching()
+
+        // ДИНАМИЧЕСКАЯ ЗАГРУЗКА: C++ слой начинает грузиться ТОЛЬКО СЕЙЧАС,
+        // когда сервис уже успешно запущен кнопкой, полностью изолированно от Меча!
+        Thread {
+            try {
+                System.loadLibrary("llama")
+                android.util.Log.d("MECH_BRAIN", "libllama.so успешно загружена в фоне процесса.")
+            } catch (e: UnsatisfiedLinkError) {
+                android.util.Log.e("MECH_BRAIN", "Ошибка отложенной линковки JNI: ${e.message}")
+            }
+        }.start()
     }
 
     override fun onDestroy() {
@@ -93,17 +102,5 @@ class BrainOverlayService : Service() {
         try {
             LlamaJNI.unloadModel()
         } catch (_: Exception) {}
-    }
-
-    companion object {
-        init {
-            try {
-                // ВНИМАНИЕ: Для первого теста холодного старта можно закомментировать строку ниже (поставить //),
-                // чтобы проверить, что само приложение открывается без нативных сбоев!
-                System.loadLibrary("llama") 
-            } catch (e: UnsatisfiedLinkError) {
-                android.util.Log.e("MECH_BRAIN", "Ошибка линковки JNI: ${e.message}")
-            }
-        }
     }
 }
