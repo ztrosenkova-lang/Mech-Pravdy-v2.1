@@ -46,6 +46,10 @@ android {
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_STL=c++_shared", 
@@ -80,6 +84,20 @@ android {
 
     aaptOptions {
         noCompress "bin", "gguf"
+    }
+
+    packagingOptions {
+        pickFirst "lib/**/libc++_shared.so"
+        pickFirst "lib/**/libfbjni.so"
+        pickFirst "lib/**/libjscexecutor.so"
+        pickFirst "lib/**/libhermes.so"
+        
+        exclude "META-INF/DEPENDENCIES"
+        exclude "META-INF/LICENSE"
+        exclude "META-INF/LICENSE.txt"
+        exclude "META-INF/notice.txt"
+        exclude "META-INF/NOTICE"
+        exclude "META-INF/NOTICE.txt"
     }
 }
 
