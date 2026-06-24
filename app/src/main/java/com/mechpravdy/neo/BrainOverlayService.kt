@@ -40,13 +40,20 @@ class BrainOverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        // Создаем полупрозрачное окошко
+        // Создаем стильное бело-прозрачное окно с закругленными краями
         floatingView = TextView(this).apply {
             text = "НЕО: МОЗГ"
-            setBackgroundColor(Color.parseColor("#CC000000"))
-            setTextColor(Color.GREEN)
-            setPadding(16, 16, 16, 16)
+            setTextColor(Color.parseColor("#1A8A2E")) // Фирменный зеленый цвет Меча
+            setPadding(24, 16, 24, 16)
             textSize = 12f
+            
+            // Нативно закругляем края и делаем бело-прозрачный фон (75% непрозрачности)
+            val shape = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#C0FFFFFF")) // Белый цвет + альфа-канал прозрачности
+                cornerRadius = 24f // Радиус закругления краев окна
+                setStroke(2, Color.parseColor("#1A8A2E")) // Тонкая зеленая рамка по контуру
+            }
+            background = shape
         }
 
         val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -62,9 +69,11 @@ class BrainOverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 10
-            y = 100
+            // ИСПРАВЛЕНО: Убираем привязку к краю экрана (Gravity.END)
+            // Центрируем окно по горизонтали, чтобы оно встало ровно посередине рамки приложения
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            x = 0 
+            y = 120 // Высота от верха экрана, чтобы окно встало ровно на уровне Мурзехи
         }
 
         windowManager.addView(floatingView, params)
