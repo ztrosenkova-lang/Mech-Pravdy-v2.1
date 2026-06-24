@@ -309,6 +309,7 @@ class MainActivity : AppCompatActivity() {
                     
                     val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
                     if (savedPath != null && File(savedPath).exists()) {
+                        serviceIntent.putExtra("MODEL_PATH", savedPath)
                         startService(serviceIntent)
                         
                         // Запускаем слежку за файлом ТОЛЬКО СЕЙЧАС:
