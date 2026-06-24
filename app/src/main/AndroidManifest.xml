@@ -50,13 +50,9 @@
         <!-- ===== ПЛАВАЮЩЕЕ ОКНО REACT NATIVE (ACTIVITY) ===== -->
         <activity
             android:name=".BrainFloatingWindow"
-            android:exported="false"
+            android:process=":brain_process"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:taskAffinity=""
-            android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:windowSoftInputMode="adjustResize" />
+            android:exported="false" />
 
     </application>
 
