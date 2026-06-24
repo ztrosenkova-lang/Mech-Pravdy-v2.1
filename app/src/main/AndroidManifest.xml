@@ -50,7 +50,6 @@
         <service 
             android:name=".BrainOverlayService" 
             android:process=":brain_process" 
-            android:isolatedProcess="true"
             android:exported="false" />
 
         <!-- ===== ПЛАВАЮЩЕЕ ОКНО REACT NATIVE (ACTIVITY) ===== -->
