@@ -1,165 +1,90 @@
 package com.mechpravdy.neo
 
-import android.graphics.PixelFormat
-import android.os.Build
 import android.os.Bundle
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
+import android.os.FileObserver
+import android.os.Process
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
-import com.facebook.react.ReactInstanceManager
-import com.facebook.react.common.LifecycleState
-import com.facebook.react.shell.MainReactPackage
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import java.io.File
 
 class BrainFloatingWindow : ReactActivity() {
 
-    companion object {
-        private const val WINDOW_WIDTH_DP = 250
-        private const val WINDOW_HEIGHT_DP = 350
-        private var isFullScreen = false
-        private var isDragging = false
-    }
+    private var queryObserver: FileObserver? = null
 
+    // Имя вашего главного React-компонента, зарегистрированного в JS-слое
     override fun getMainComponentName(): String = "FloatingBrain"
 
-    override fun createReactActivityDelegate(): ReactActivityDelegate {
-        return object : DefaultReactActivityDelegate(
-            this,
-            mainComponentName,
-            fabricEnabled
-        ) {
-            override fun getLaunchOptions(): Bundle? {
-                val initialProps = Bundle()
-                return initialProps
-            }
-        }
-    }
+    override fun createReactActivityDelegate(): ReactActivityDelegate =
+        DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setupFloatingWindow()
-        setupDragging()
-        setupFullScreenToggle()
-    }
+        // 1. Инициализируем пути к файлам связи в контексте изолированного процесса Мозга
+        val queryFile = File(filesDir, "brain_query.txt")
+        val responseFile = File(filesDir, "brain_response.txt")
 
-    private fun setupFloatingWindow() {
-        window.apply {
-            setFormat(PixelFormat.TRANSLUCENT)
-            setGravity(Gravity.TOP or Gravity.START)
+        // 2. Создаем и запускаем нативный FileObserver для слежки за файлом запросов от "Меча"
+        queryObserver = object : FileObserver(queryFile.path, CLOSE_WRITE) {
+            override fun onEvent(event: Int, path: String?) {
+                try {
+                    val queryText = queryFile.readText().trim()
+                    
+                    if (queryText.isNotBlank()) {
+                        // А. Очищаем файл запроса, давая знак "Мечу", что задача ушла в работу
+                        queryFile.writeText("")
 
-            val params = attributes
-            params.width = dpToPx(WINDOW_WIDTH_DP)
-            params.height = dpToPx(WINDOW_HEIGHT_DP)
-            params.x = 20
-            params.y = 100
+                        // Б. Переносим тяжелые вычисления ИИ в выделенный фоновый поток этого процесса
+                        Thread {
+                            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                            try {
+                                // Проверяем, готова ли нативная модель Llama
+                                val aiResponse = if (LlamaJNI.isModelLoaded()) {
+                                    // Запускаем генерацию ответа локальной GGUF модели
+                                    LlamaJNI.generate(queryText, 512)
+                                } else {
+                                    "[МОЗГ] Ошибка: Локальная модель GGUF не загружена в память процесса."
+                                }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                params.flags = params.flags or
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            } else {
-                params.flags = params.flags or
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            }
-
-            attributes = params
-            setBackgroundDrawableResource(android.R.color.transparent)
-        }
-    }
-
-    private fun setupDragging() {
-        val rootView = window.decorView.findViewById<View>(android.R.id.content)
-        var startRawX = 0f
-        var startRawY = 0f
-
-        rootView.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    isDragging = false
-                    startRawX = event.rawX
-                    startRawY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val deltaX = (event.rawX - startRawX).toInt()
-                    val deltaY = (event.rawY - startRawY).toInt()
-
-                    if (kotlin.math.abs(deltaX) > 10 || kotlin.math.abs(deltaY) > 10) {
-                        isDragging = true
+                                // В. Записываем сгенерированный ответ. Наблюдатель в Мече мгновенно его выведет!
+                                responseFile.writeText(aiResponse)
+                                
+                            } catch (e: Exception) {
+                                val errorMsg = "[ОШИБКА МОЗГА] Сбой генерации: ${e.message}"
+                                android.util.Log.e("MECH_BRAIN", errorMsg, e)
+                                try { responseFile.writeText(errorMsg) } catch (_: Exception) {}
+                            }
+                        }.start()
                     }
-
-                    if (isDragging) {
-                        val params = window.attributes
-                        params.x = (params.x + deltaX).coerceAtLeast(0)
-                        params.y = (params.y + deltaY).coerceAtLeast(0)
-                        window.attributes = params
-                        startRawX = event.rawX
-                        startRawY = event.rawY
-                    }
-                    true
+                } catch (e: Exception) {
+                    android.util.Log.e("MECH_BRAIN", "Ошибка обработки файлового моста: ${e.message}", e)
                 }
-                else -> false
             }
         }
+        
+        // Включаем слежку за файлом команд
+        queryObserver?.startWatching()
+        android.util.Log.d("MECH_BRAIN", "Нативный файловый мост 'Меч-Мозг' успешно инициализирован.")
     }
 
-    private fun setupFullScreenToggle() {
-        val rootView = window.decorView.findViewById<View>(android.R.id.content)
-        var lastClickTime = 0L
+    override fun onDestroy() {
+        super.onDestroy()
+        // Обязательно останавливаем наблюдение, чтобы не текла память Android-процесса
+        queryObserver?.stopWatching()
+    }
 
-        rootView.setOnClickListener {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastClickTime < 300) {
-                toggleFullScreen()
+    // 3. Статическая загрузка C++ библиотек строго внутри изолированного процесса Мозга
+    companion object {
+        init {
+            try {
+                // Имя библиотеки должно точно совпадать с вашей скомпилированной .so (без lib и .so)
+                System.loadLibrary("llama")
+                android.util.Log.d("MECH_BRAIN", "libllama.so успешно загружена в процесс :brain_process")
+            } catch (e: UnsatisfiedLinkError) {
+                android.util.Log.e("MECH_BRAIN", "Фатальный сбой JNI: библиотека libllama.so не найдена: ${e.message}")
             }
-            lastClickTime = currentTime
-        }
-    }
-
-    private fun toggleFullScreen() {
-        isFullScreen = !isFullScreen
-        val params = window.attributes
-
-        if (isFullScreen) {
-            params.width = WindowManager.LayoutParams.MATCH_PARENT
-            params.height = WindowManager.LayoutParams.MATCH_PARENT
-            params.x = 0
-            params.y = 0
-            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-        } else {
-            params.width = dpToPx(WINDOW_WIDTH_DP)
-            params.height = dpToPx(WINDOW_HEIGHT_DP)
-            params.x = 20
-            params.y = 100
-            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        }
-
-        window.attributes = params
-    }
-
-    private fun dpToPx(dp: Int): Int {
-        return (dp * resources.displayMetrics.density).toInt()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        if (!isFullScreen) {
-            window.setFlags(
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            )
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (!isFullScreen) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         }
     }
 }
