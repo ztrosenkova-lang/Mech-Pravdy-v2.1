@@ -13,7 +13,6 @@ class BrainFloatingWindow : ReactActivity() {
 
     private var queryObserver: FileObserver? = null
 
-    // Имя вашего главного React-компонента, зарегистрированного в JS-слое
     override fun getMainComponentName(): String = "FloatingBrain"
 
     override fun createReactActivityDelegate(): ReactActivityDelegate =
@@ -21,69 +20,74 @@ class BrainFloatingWindow : ReactActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // В onCreate ничего тяжелого не делаем, чтобы операционная система успела выдать права процессу
+    }
 
-        // 1. Инициализируем пути к файлам связи в контексте изолированного процесса Мозга
-        val queryFile = File(filesDir, "brain_query.txt")
-        val responseFile = File(filesDir, "brain_response.txt")
+    // ИСПРАВЛЕНО: Переносим инициализацию моста в onResume (когда процесс уже легально запущен и одобрен системой)
+    override fun onResume() {
+        super.onResume()
+        
+        if (queryObserver == null) {
+            try {
+                val queryFile = File(filesDir, "brain_query.txt")
+                val responseFile = File(filesDir, "brain_response.txt")
 
-        // 2. Создаем и запускаем нативный FileObserver для слежки за файлом запросов от "Меча"
-        queryObserver = object : FileObserver(queryFile.path, CLOSE_WRITE) {
-            override fun onEvent(event: Int, path: String?) {
-                try {
-                    val queryText = queryFile.readText().trim()
-                    
-                    if (queryText.isNotBlank()) {
-                        // А. Очищаем файл запроса, давая знак "Мечу", что задача ушла в работу
-                        queryFile.writeText("")
+                if (!queryFile.exists()) queryFile.createNewFile()
+                if (!responseFile.exists()) responseFile.createNewFile()
 
-                        // Б. Переносим тяжелые вычисления ИИ в выделенный фоновый поток этого процесса
-                        Thread {
-                            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-                            try {
-                                // Проверяем, готова ли нативная модель Llama
-                                val aiResponse = if (LlamaJNI.isModelLoaded()) {
-                                    // Запускаем генерацию ответа локальной GGUF модели
-                                    LlamaJNI.generate(queryText, 512)
-                                } else {
-                                    "[МОЗГ] Ошибка: Локальная модель GGUF не загружена в память процесса."
-                                }
+                queryObserver = object : FileObserver(queryFile.path, CLOSE_WRITE) {
+                    override fun onEvent(event: Int, path: String?) {
+                        try {
+                            val queryText = queryFile.readText().trim()
+                            if (queryText.isNotBlank()) {
+                                queryFile.writeText("") // Очищаем запрос
 
-                                // В. Записываем сгенерированный ответ. Наблюдатель в Мече мгновенно его выведет!
-                                responseFile.writeText(aiResponse)
-                                
-                            } catch (e: Exception) {
-                                val errorMsg = "[ОШИБКА МОЗГА] Сбой генерации: ${e.message}"
-                                android.util.Log.e("MECH_BRAIN", errorMsg, e)
-                                try { responseFile.writeText(errorMsg) } catch (_: Exception) {}
+                                Thread {
+                                    Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                                    try {
+                                        // Безопасный вызов JNI с проверкой
+                                        val aiResponse = try {
+                                            if (LlamaJNI.isModelLoaded()) {
+                                                LlamaJNI.generate(queryText, 512)
+                                            } else {
+                                                "[МОЗГ] Ошибка: Локальная модель GGUF не загружена."
+                                            }
+                                        } catch (t: Throwable) {
+                                            "[JNI ERROR] Ошибка вызова нативного метода: ${t.message}"
+                                        }
+
+                                        responseFile.writeText(aiResponse)
+                                    } catch (e: Exception) {
+                                        try { responseFile.writeText("[ОШИБКА МОЗГА] ${e.message}") } catch (_: Exception) {}
+                                    }
+                                }.start()
                             }
-                        }.start()
+                        } catch (e: Exception) {
+                            android.util.Log.e("MECH_BRAIN", "Ошибка чтения файла воркфлоу: ${e.message}")
+                        }
                     }
-                } catch (e: Exception) {
-                    android.util.Log.e("MECH_BRAIN", "Ошибка обработки файлового моста: ${e.message}", e)
                 }
+                queryObserver?.startWatching()
+                android.util.Log.d("MECH_BRAIN", "Нативный мост безопасности успешно запущен в фазе OnResume.")
+            } catch (e: Exception) {
+                android.util.Log.e("MECH_BRAIN", "Не удалось запустить мост: ${e.message}")
             }
         }
-        
-        // Включаем слежку за файлом команд
-        queryObserver?.startWatching()
-        android.util.Log.d("MECH_BRAIN", "Нативный файловый мост 'Меч-Мозг' успешно инициализирован.")
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Обязательно останавливаем наблюдение, чтобы не текла память Android-процесса
+    override fun onPause() {
+        super.onPause()
+        // При сворачивании окна временно гасим слежку, чтобы не злить систему безопасности Android
         queryObserver?.stopWatching()
+        queryObserver = null
     }
 
-    // 3. Статическая загрузка C++ библиотек строго внутри изолированного процесса Мозга
     companion object {
         init {
             try {
-                // Имя библиотеки должно точно совпадать с вашей скомпилированной .so (без lib и .so)
                 System.loadLibrary("llama")
-                android.util.Log.d("MECH_BRAIN", "libllama.so успешно загружена в процесс :brain_process")
             } catch (e: UnsatisfiedLinkError) {
-                android.util.Log.e("MECH_BRAIN", "Фатальный сбой JNI: библиотека libllama.so не найдена: ${e.message}")
+                android.util.Log.e("MECH_BRAIN", "Нативная библиотека не слинковалась: ${e.message}")
             }
         }
     }
