@@ -51,7 +51,7 @@
         <activity
             android:name=".BrainFloatingWindow"
             android:process=":brain_process"
-            android:multiprocess="true"
+            android:launchMode="singleInstance"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:exported="false" />
 
