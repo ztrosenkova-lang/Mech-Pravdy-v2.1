@@ -277,10 +277,10 @@ class MainActivity : AppCompatActivity() {
                                     // Просим систему удалить временный файл из общих загрузок
                                     downloadManager.remove(downloadId)
 
-                                    // Исправление 1: строгая привязка к экрану MainActivity
+                                    // Исправленный вызов: findViewById с типом android.view.View
                                     runOnUiThread {
                                         appendChat("[МОЗГ] Системная загрузка завершена! Веса успешно зашли в песочницу.")
-                                        this@MainActivity.findViewById<Button>(R.id.btmPC).performClick()
+                                        findViewById<android.view.View>(R.id.btmPC).performClick()
                                     }
                                 }
                             } catch (e: Exception) {
