@@ -207,14 +207,14 @@ class MainActivity : AppCompatActivity() {
     // ===== ПОКАЗАТЬ ДИАЛОГ ЗАГРУЗКИ МОДЕЛИ ПО ССЫЛКЕ =====
     private fun showDownloadModelDialog() {
         val input = EditText(this).apply {
-            hint = "Вставьте ссылку на .gguf файл"
+            hint = "Вставьте ссылку для скачивания модели"
             inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
-            setTextColor(Color.WHITE)
+            setTextColor(Color.BLACK)
             setHintTextColor(Color.GRAY)
         }
         AlertDialog.Builder(this)
             .setTitle("Загрузить модель ИИ")
-            .setMessage("Вставьте прямую ссылку на скачивание GGUF-файла модели.\nМодель будет загружена в песочницу приложения.")
+            .setMessage("Вставьте ссылку на скачивание GGUF-файла модели.\nМодель будет загружена в песочницу приложения.")
             .setView(input)
             .setPositiveButton("СКАЧАТЬ") { _, _ ->
                 val url = input.text.toString().trim()
@@ -226,19 +226,10 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ =====
+    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ (ПОДДЕРЖКА ЛЮБЫХ ССЫЛОК) =====
     private fun startModelDownload(urlString: String) {
         val modelsDir = File(filesDir, "models")
         if (!modelsDir.exists()) modelsDir.mkdirs()
-
-        val fileName = urlString.substringAfterLast("/").substringBefore("?")
-        if (fileName.isEmpty() || !fileName.endsWith(".gguf")) {
-            appendChat("[МОЗГ] Ошибка: ссылка должна вести на .gguf файл")
-            return
-        }
-
-        val modelFile = File(modelsDir, fileName)
-        appendChat("[МОЗГ] Начинаю загрузку модели: $fileName")
 
         Thread {
             try {
@@ -246,6 +237,8 @@ class MainActivity : AppCompatActivity() {
                 val connection = url.openConnection() as HttpURLConnection
                 connection.connectTimeout = 30000
                 connection.readTimeout = 600000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+                connection.instanceFollowRedirects = true
                 connection.connect()
 
                 if (connection.responseCode != HttpURLConnection.HTTP_OK) {
@@ -253,12 +246,47 @@ class MainActivity : AppCompatActivity() {
                     return@Thread
                 }
 
+                // Определяем имя файла
+                var fileName = "model.gguf"
+                val disposition = connection.getHeaderField("Content-Disposition")
+                if (disposition != null && disposition.contains("filename=")) {
+                    fileName = disposition.substringAfter("filename=").replace("\"", "").trim()
+                } else {
+                    val path = url.path
+                    val rawName = path.substringAfterLast("/")
+                    if (rawName.isNotEmpty()) {
+                        fileName = rawName.substringBefore("?")
+                    }
+                }
+
+                val modelFile = File(modelsDir, fileName)
+                val totalSize = connection.contentLength
+
+                runOnUiThread {
+                    appendChat("[МОЗГ] Загрузка: $fileName")
+                    if (totalSize > 0) {
+                        appendChat("[МОЗГ] Размер: ${"%,d".format(totalSize / 1024 / 1024)} МБ")
+                    }
+                }
+
                 connection.inputStream.use { input ->
                     modelFile.outputStream().use { output ->
                         val buffer = ByteArray(8192)
                         var bytesRead: Int
+                        var downloaded = 0L
+                        var lastProgress = 0L
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
+                            downloaded += bytesRead
+
+                            // Обновляем прогресс каждые 5 МБ
+                            if (totalSize > 0 && (downloaded - lastProgress >= 5 * 1024 * 1024 || downloaded == totalSize)) {
+                                lastProgress = downloaded
+                                val percent = (downloaded * 100 / totalSize).toInt()
+                                runOnUiThread {
+                                    setStatus("Загрузка: $percent%", "yellow")
+                                }
+                            }
                         }
                     }
                 }
