@@ -272,10 +272,10 @@ class MainActivity : AppCompatActivity() {
                                     // Просим систему удалить временный файл из общих загрузок
                                     downloadManager.remove(downloadId)
 
-                                    // Исправленный вызов: ищем кнопку через findViewById в UI-потоке
+                                    // Исправление 1: строгая привязка к экрану MainActivity
                                     runOnUiThread {
                                         appendChat("[МОЗГ] Системная загрузка завершена! Веса успешно зашли в песочницу.")
-                                        findViewById<Button>(R.id.btmPC).performClick() // Ищем кнопку напрямую в UI-потоке!
+                                        this@MainActivity.findViewById<Button>(R.id.btmPC).performClick()
                                     }
                                 }
                             } catch (e: Exception) {
