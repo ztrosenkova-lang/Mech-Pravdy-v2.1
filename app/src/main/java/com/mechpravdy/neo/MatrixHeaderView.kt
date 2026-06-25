@@ -190,22 +190,25 @@ class MatrixHeaderView @JvmOverloads constructor(
             murzikCenterY + murzikRadius
         )
 
-        // Правая сторона управления (Группируем всё вместе)
-        val rightX = w.toFloat() - 16f
-        
-        // Кнопка Справка (знак вопроса)
-        helpButtonRect.set(rightX - 40f, 16f, rightX, 56f)
-        
-        // Кнопка Выход из Нео (крестик)
-        exitButtonRect.set(helpButtonRect.left - 48f, 16f, helpButtonRect.left - 8f, 56f)
-        
-        // Переносим Метлу (очистка) на правую сторону
-        clearButtonRect.set(exitButtonRect.left - 48f, 16f, exitButtonRect.left - 8f, 56f)
-        
-        // Переносим Меню (три полоски) на правую сторону
-        menuButtonRect.set(clearButtonRect.left - 48f, 16f, clearButtonRect.left - 8f, 56f)
+        val screenWidth = w.toFloat()
+        val sideMargin = 10f
+        val btnSize = 80f
+        val btnHalf = btnSize / 2
 
-        // Левая сторона теперь полностью пустая и свободная под оверлей-окно!
+        val helpCenterX = sideMargin + (murzikCenterX - murzikRadius - sideMargin) / 3
+        helpButtonRect = RectF(helpCenterX - btnHalf, murzikCenterY - btnHalf, helpCenterX + btnHalf, murzikCenterY + btnHalf)
+
+        val exitCenterX = helpCenterX + btnSize + 12f
+        exitButtonRect = RectF(exitCenterX - btnHalf, murzikCenterY - btnHalf, exitCenterX + btnHalf, murzikCenterY + btnHalf)
+
+        val clearCenterX = murzikCenterX + murzikRadius + (screenWidth - murzikCenterX - murzikRadius - sideMargin) / 3
+        clearButtonRect = RectF(clearCenterX - btnHalf, murzikCenterY - btnHalf, clearCenterX + btnHalf, murzikCenterY + btnHalf)
+
+        val localRowCenterX = clearCenterX + btnSize + 12f
+        localRowButtonRect = RectF(localRowCenterX - btnHalf, murzikCenterY - btnHalf, localRowCenterX + btnHalf, murzikCenterY + btnHalf)
+
+        val menuCenterX = localRowCenterX + btnSize + 12f
+        menuButtonRect = RectF(menuCenterX - btnHalf, murzikCenterY - btnHalf, menuCenterX + btnHalf, murzikCenterY + btnHalf)
 
         val memoryWidth = 260f
         val memoryHeight = 40f
@@ -272,16 +275,10 @@ class MatrixHeaderView @JvmOverloads constructor(
 
         val btnPaint = Paint().apply { isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
         val btnTextPaint = Paint().apply { color = Color.WHITE; isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
-        
-        // 1. ЦВЕТ ДЛЯ КНОПКИ ГИГАЧАТ
-        // Если режим gigaChatMode включен — красим в оранжевый, если выключен — возвращаем в зеленый
-        btnPaint.color = if (gigaChatMode) Color.parseColor("#FF9800") else Color.parseColor("#1A8A2E")
+        btnPaint.color = if (gigaChatMode) Color.parseColor("#21A038") else Color.parseColor("#555555")
         canvas.drawRoundRect(neoButtonRect, 10f, 10f, btnPaint)
         canvas.drawText("ГИГАЧАТ", neoButtonRect.centerX(), neoButtonRect.centerY() + 5f, btnTextPaint)
-        
-        // 2. ЦВЕТ ДЛЯ КНОПКИ ОБЛАЧНЫЙ
-        // Если режим localMode включен — красим в оранжевый, если выключен — возвращаем в зеленый
-        btnPaint.color = if (localMode) Color.parseColor("#FF9800") else Color.parseColor("#1A8A2E")
+        btnPaint.color = if (localMode) Color.parseColor("#FF8800") else Color.parseColor("#555555")
         canvas.drawRoundRect(localButtonRect, 10f, 10f, btnPaint)
         canvas.drawText("ОБЛАЧНЫЙ", localButtonRect.centerX(), localButtonRect.centerY() + 5f, btnTextPaint)
 
@@ -314,6 +311,29 @@ class MatrixHeaderView @JvmOverloads constructor(
         canvas.drawCircle(clearButtonRect.centerX(), clearButtonRect.centerY(), clearButtonRect.width() / 2, clearFramePaint)
         val clearTextPaint = Paint().apply { color = Color.WHITE; textSize = 36f; isAntiAlias = true; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD }
         canvas.drawText("🧹", clearButtonRect.centerX(), clearButtonRect.centerY() + 12f, clearTextPaint)
+
+        val localRowBgPaint = Paint().apply { 
+            color = if (localRowMode) Color.parseColor("#FF8800") else Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(localRowButtonRect.centerX(), localRowButtonRect.centerY(), localRowButtonRect.width() / 2, localRowBgPaint)
+
+        val localRowFramePaint = Paint().apply { 
+            color = Color.parseColor("#21A038")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true 
+        }
+        canvas.drawCircle(localRowButtonRect.centerX(), localRowButtonRect.centerY(), localRowButtonRect.width() / 2, localRowFramePaint)
+
+        val localRowTextPaint = Paint().apply { 
+            color = if (localRowMode) Color.WHITE else Color.parseColor("#888888")
+            textSize = 36f
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.DEFAULT_BOLD 
+        }
+        canvas.drawText("🖥️", localRowButtonRect.centerX(), localRowButtonRect.centerY() + 12f, localRowTextPaint)
 
         val menuBgPaint = Paint().apply { 
             color = if (localRowMode) Color.parseColor("#FF8800") else Color.WHITE
@@ -366,18 +386,8 @@ class MatrixHeaderView @JvmOverloads constructor(
 
     fun handleTouch(x: Float, y: Float) {
         when {
-            neoButtonRect.contains(x, y) -> {
-                gigaChatMode = !gigaChatMode
-                if (gigaChatMode) localMode = false
-                invalidate() // Мгновенно перерисовывает кнопку (включает оранжевый/зеленый)
-                onNeoClick?.invoke()
-            }
-            localButtonRect.contains(x, y) -> {
-                localMode = !localMode
-                if (localMode) gigaChatMode = false
-                invalidate() // Мгновенно перерисовывает кнопку (включает оранжевый/зеленый)
-                onLocalClick?.invoke()
-            }
+            neoButtonRect.contains(x, y) -> onNeoClick?.invoke()
+            localButtonRect.contains(x, y) -> onLocalClick?.invoke()
             helpButtonRect.contains(x, y) -> onHelpClick?.invoke()
             exitButtonRect.contains(x, y) -> onExitClick?.invoke()
             localRowButtonRect.contains(x, y) -> onLocalRowClick?.invoke()
