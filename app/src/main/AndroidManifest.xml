@@ -40,24 +40,13 @@
             </intent-filter>
         </activity>
 
-        <!-- ===== ПЛАВАЮЩЕЕ ОКНО REACT NATIVE (SERVICE) ===== -->
-        <service
-            android:name=".OverlayService"
-            android:foregroundServiceType="specialUse"
-            android:exported="false" />
-
-        <!-- ===== ИЗОЛИРОВАННЫЙ СЕРВИС МОЗГА ===== -->
-        <service 
-            android:name=".BrainOverlayService" 
-            android:process=":brain_process" 
-            android:exported="false" />
-
         <!-- ===== ПЛАВАЮЩЕЕ ОКНО REACT NATIVE (ACTIVITY) ===== -->
         <activity
             android:name=".BrainFloatingWindow"
             android:process=":brain_process"
             android:launchMode="singleInstance"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="false" />
 
     </application>
