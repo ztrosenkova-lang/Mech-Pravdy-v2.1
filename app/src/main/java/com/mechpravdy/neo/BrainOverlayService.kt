@@ -69,11 +69,10 @@ class BrainOverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            // ИСПРАВЛЕНО: Убираем привязку к краю экрана (Gravity.END)
-            // Центрируем окно по горизонтали, чтобы оно встало ровно посередине рамки приложения
+            // Центрируем окно по горизонтали — оно встанет ровно посередине экрана
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = 0 
-            y = 120 // Высота от верха экрана, чтобы окно встало ровно на уровне Мурзехи
+            y = 120 // Высота от верха экрана, чтобы окно встало на уровне Мурзехи
         }
 
         windowManager.addView(floatingView, params)
