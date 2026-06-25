@@ -2,10 +2,12 @@ package com.mechpravdy.neo
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.*
@@ -228,60 +230,67 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ (ИСПРАВЛЕННЫЙ МЕТОД) =====
+    // ===== СКАЧИВАНИЕ МОДЕЛИ ЧЕРЕЗ СИСТЕМНЫЙ DownloadManager =====
     private fun startModelDownload(urlString: String) {
-        val modelsDir = File(filesDir, "models")
-        if (!modelsDir.exists()) modelsDir.mkdirs()
+        appendChat("[СИСТЕМА] Передача ссылки в системный загрузчик Android...")
 
-        appendChat("[СИСТЕМА] Подключение к источнику данных...")
+        try {
+            val uri = Uri.parse(urlString)
+            val request = DownloadManager.Request(uri).apply {
+                setTitle("Загрузка весов ИИ")
+                setDescription("Извлечение модели прямо в песочницу")
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                // Качаем во временный системный файл, к которому у DownloadManager есть доступ
+                setDestinationInExternalFilesDir(this@MainActivity, android.os.Environment.DIRECTORY_DOWNLOADS, "temp_model.gguf")
+            }
 
-        Thread {
-            try {
-                val url = URL(urlString)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.connectTimeout = 30000
-                connection.readTimeout = 600000
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                connection.instanceFollowRedirects = true
-                connection.connect()
+            val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val downloadId = downloadManager.enqueue(request)
 
-                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                    runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: HTTP ${connection.responseCode}") }
-                    return@Thread
-                }
+            // Ловим уведомление от ОС о завершении скачивания
+            val onComplete = object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+                    if (id == downloadId) {
+                        Thread {
+                            try {
+                                // Запрашиваем у системы виртуальный URI скачанного файла
+                                val downloadedUri = downloadManager.getUriForDownloadedFile(downloadId)
+                                
+                                if (downloadedUri != null) {
+                                    val modelsDir = File(filesDir, "models")
+                                    if (!modelsDir.exists()) modelsDir.mkdirs()
+                                    val destFile = File(modelsDir, "model.gguf")
 
-                var fileName = "model.gguf"
-                val disposition = connection.getHeaderField("Content-Disposition")
-                if (disposition != null && disposition.contains("filename=")) {
-                    fileName = disposition.substringAfter("filename=").replace("\"", "").trim()
-                } else {
-                    val path = url.path
-                    val rawName = path.substringAfterLast("/")
-                    if (rawName.isNotEmpty()) fileName = rawName.substringBefore("?")
-                }
+                                    // Открываем системный поток данных напрямую в нашу песочницу
+                                    contentResolver.openInputStream(downloadedUri).use { input ->
+                                        destFile.outputStream().use { output ->
+                                            input?.copyTo(output)
+                                        }
+                                    }
+                                    
+                                    // Просим систему удалить временный файл из общих загрузок
+                                    downloadManager.remove(downloadId)
 
-                val modelFile = File(modelsDir, fileName)
-                appendChat("[МОЗГ] Загрузка: $fileName")
-
-                connection.inputStream.use { input ->
-                    modelFile.outputStream().use { output ->
-                        input.copyTo(output)
+                                    runOnUiThread {
+                                        appendChat("[МОЗГ] Системная загрузка завершена! Веса успешно зашли в песочницу.")
+                                        btmPC.performClick() // Открываем бело-зеленый диалог запуска
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                runOnUiThread { appendChat("[ОШИБКА] Не удалось забрать файл у системы: ${e.message}") }
+                            }
+                        }.start()
+                        unregisterReceiver(this)
                     }
                 }
-
-                val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
-
-                runOnUiThread {
-                    appendChat("[МОЗГ] Поток успешно сохранен: $fileName (${modelFile.length() / 1024 / 1024} МБ)")
-                    appendChat("[МОЗГ] Нажмите кнопку КОМПЬЮТЕР снова.")
-                    // КРИТИЧЕСКИЙ ФИКС: автоматически открываем диалог с кнопкой "ЗАПУСТИТЬ"
-                    btmPC.performClick()
-                }
-            } catch (e: Exception) {
-                runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: ${e.message}") }
             }
-        }.start()
+            
+            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+
+        } catch (e: Exception) {
+            appendChat("[ОШИБКА] Критическая ошибка загрузчика: ${e.message}")
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -507,7 +516,6 @@ class MainActivity : AppCompatActivity() {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
-            // Шаг 2: Явный префикс android.os.FileObserver
             brainObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
@@ -1309,7 +1317,6 @@ class MainActivity : AppCompatActivity() {
             val queryFile = File(filesDir, "brain_query.txt")
             queryFile.writeText(finalPrompt)
 
-            // Шаг 3: Явный префикс android.os.FileObserver
             val responseFile = File(filesDir, "brain_response.txt")
             var responseObserver: android.os.FileObserver? = null
             
