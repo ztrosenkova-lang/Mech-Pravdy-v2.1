@@ -249,7 +249,7 @@ class MainActivity : AppCompatActivity() {
 
             // Ловим уведомление от ОС о завершении скачивания
             val onComplete = object : android.content.BroadcastReceiver() {
-                override fun onReceive(context: Context?, intent: Intent?) {
+                override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
                     val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
                     if (id == downloadId) {
                         Thread {
@@ -272,9 +272,10 @@ class MainActivity : AppCompatActivity() {
                                     // Просим систему удалить временный файл из общих загрузок
                                     downloadManager.remove(downloadId)
 
+                                    // Шаг 3: btmPC.performClick() внутри runOnUiThread
                                     runOnUiThread {
                                         appendChat("[МОЗГ] Системная загрузка завершена! Веса успешно зашли в песочницу.")
-                                        btmPC.performClick() // Открываем бело-зеленый диалог запуска
+                                        btmPC.performClick() // Теперь клик находится строго внутри главного UI-потока!
                                     }
                                 }
                             } catch (e: Exception) {
@@ -516,7 +517,8 @@ class MainActivity : AppCompatActivity() {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
-            brainObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
+            // Шаг 1: Исправленный синтаксис с константой класса
+            brainObserver = object : android.os.FileObserver(brainResponseFile.path, android.os.FileObserver.CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
                     if (responseText.isNotBlank()) {
@@ -1317,10 +1319,11 @@ class MainActivity : AppCompatActivity() {
             val queryFile = File(filesDir, "brain_query.txt")
             queryFile.writeText(finalPrompt)
 
+            // Шаг 2: Исправленный синтаксис с константой класса
             val responseFile = File(filesDir, "brain_response.txt")
             var responseObserver: android.os.FileObserver? = null
             
-            responseObserver = object : android.os.FileObserver(responseFile.path, CLOSE_WRITE) {
+            responseObserver = object : android.os.FileObserver(responseFile.path, android.os.FileObserver.CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val aiResponse = try { responseFile.readText().trim() } catch (e: Exception) { "" }
                     if (aiResponse.isNotEmpty()) {
