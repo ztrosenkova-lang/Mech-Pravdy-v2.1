@@ -18,6 +18,7 @@ import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.Base64
+import android.util.Log
 import android.widget.*
 import android.view.MotionEvent
 import android.view.View
@@ -36,6 +37,8 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.*
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.*
@@ -70,6 +73,7 @@ class MainActivity : AppCompatActivity() {
     private var currentApiUrl = apiUrlGigaChat
     private var isGigaChatMode = true
     private var isNeoMode = false
+    private var localAiMode = false
 
     private var cloudTimeout = 300
     private var maxTokens = 1000
@@ -86,6 +90,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var checkButton: Button
     private lateinit var capsuleButton: Button
     private lateinit var attachButton: Button
+    private lateinit var btmPC: Button
     private lateinit var chatOutput: EditText
     private lateinit var statusText: TextView
     private lateinit var statusDot: View
@@ -165,26 +170,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val modelFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            val modelsDir = File(filesDir, "models")
-            if (!modelsDir.exists()) modelsDir.mkdirs()
-            val modelFile = File(modelsDir, "local_model.gguf")
-            try {
-                contentResolver.openInputStream(uri)?.use { input ->
-                    modelFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
-                appendChat("[МОЗГ] GGUF-файл сохранён. Нажмите МОЗГ для запуска.")
-            } catch (e: Exception) {
-                appendChat("[МОЗГ] Ошибка копирования файла: ${e.message}")
-            }
-        }
-    }
-
     private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
         override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
         override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -203,11 +188,111 @@ class MainActivity : AppCompatActivity() {
     
     private val gson = Gson()
 
+    // ===== ПОИСК МОДЕЛИ В ПЕСОЧНИЦЕ =====
+    private fun findModelPath(): String? {
+        val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
+        if (savedPath != null && File(savedPath).exists()) return savedPath
+
+        val modelsDir = File(filesDir, "models")
+        if (modelsDir.exists()) {
+            val ggufFiles = modelsDir.listFiles { file -> file.extension.equals("gguf", ignoreCase = true) }
+            if (ggufFiles != null && ggufFiles.isNotEmpty()) {
+                val path = ggufFiles.first().absolutePath
+                getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).edit().putString("local_model_path", path).apply()
+                return path
+            }
+        }
+
+        return null
+    }
+
+    // ===== ПОКАЗАТЬ ДИАЛОГ ЗАГРУЗКИ МОДЕЛИ ПО ССЫЛКЕ =====
+    private fun showDownloadModelDialog() {
+        val input = EditText(this).apply {
+            hint = "Вставьте ссылку для скачивания модели"
+            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setTextColor(Color.BLACK)
+            setHintTextColor(Color.GRAY)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Загрузить модель ИИ")
+            .setMessage("Вставьте ссылку на скачивание GGUF-файла модели.\nМодель будет загружена в песочницу приложения.")
+            .setView(input)
+            .setPositiveButton("СКАЧАТЬ") { _, _ ->
+                val url = input.text.toString().trim()
+                if (url.isNotEmpty()) {
+                    startModelDownload(url)
+                }
+            }
+            .setNegativeButton("ОТМЕНА", null)
+            .show()
+    }
+
+    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ =====
+    private fun startModelDownload(urlString: String) {
+        val modelsDir = File(filesDir, "models")
+        if (!modelsDir.exists()) modelsDir.mkdirs()
+
+        Thread {
+            try {
+                val url = URL(urlString)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 30000
+                connection.readTimeout = 600000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+                connection.instanceFollowRedirects = true
+                connection.connect()
+
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: HTTP ${connection.responseCode}") }
+                    return@Thread
+                }
+
+                var fileName = "model.gguf"
+                val disposition = connection.getHeaderField("Content-Disposition")
+                if (disposition != null && disposition.contains("filename=")) {
+                    fileName = disposition.substringAfter("filename=").replace("\"", "").trim()
+                } else {
+                    val path = url.path
+                    val rawName = path.substringAfterLast("/")
+                    if (rawName.isNotEmpty()) fileName = rawName.substringBefore("?")
+                }
+
+                val modelFile = File(modelsDir, fileName)
+                appendChat("[МОЗГ] Загрузка: $fileName")
+
+                connection.inputStream.use { input ->
+                    modelFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
+                prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
+
+                runOnUiThread {
+                    appendChat("[МОЗГ] Модель загружена: $fileName (${modelFile.length() / 1024 / 1024} МБ)")
+                    appendChat("[МОЗГ] Нажмите МОЗГ для запуска.")
+                }
+            } catch (e: Exception) {
+                runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: ${e.message}") }
+            }
+        }.start()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             window.statusBarColor = Color.parseColor("#1A8A2E")
             setContentView(R.layout.activity_main)
+
+            // ===== СОЗДАЁМ ПЕСОЧНИЦУ =====
+            val modelsDir = File(filesDir, "models")
+            if (!modelsDir.exists()) {
+                modelsDir.mkdirs()
+                Log.d("MECH_LOG", "Песочница создана: ${modelsDir.absolutePath}")
+            }
+            Log.d("MECH_LOG", "Путь к песочнице: ${modelsDir.absolutePath}")
 
             tts = TextToSpeech(this) { status ->
                 if (status == TextToSpeech.SUCCESS) {
@@ -229,6 +314,7 @@ class MainActivity : AppCompatActivity() {
             capsuleButton = findViewById(R.id.capsuleButton)
             attachButton = findViewById(R.id.attachButton)
             clearTokenButton = findViewById(R.id.clearTokenButton)
+            btmPC = findViewById(R.id.btmPC)
             chatOutput = findViewById(R.id.chatOutput)
             statusText = findViewById(R.id.statusText)
             statusDot = findViewById(R.id.statusDot)
@@ -279,55 +365,147 @@ class MainActivity : AppCompatActivity() {
             // ===== КНОПКА МОЗГ =====
             checkButton.setOnClickListener {
                 hideKeyboard()
-
+                
+                // КРИТИЧЕСКИЙ ШАГ: Гарантируем, что песочница физически создана в памяти
+                if (!filesDir.exists()) {
+                    filesDir.mkdirs()
+                }
+                
+                // 1. Проверяем системное разрешение на отображение поверх всех окон
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this@MainActivity)) {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Требуется разрешение")
-                        .setMessage("Для работы окна МОЗГ необходимо разрешение «Отображение поверх других окон».\n\nОткрыть настройки?")
-                        .setPositiveButton("ОТКРЫТЬ НАСТРОЙКИ") { _, _ ->
-                            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                        }
-                        .setNegativeButton("ОТМЕНА", null)
-                        .show()
+                    appendChat("[СИСТЕМА] Для вылета оверлея требуется разрешение.")
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
                     return@setOnClickListener
                 }
 
-                // ДИНАМИЧЕСКАЯ ИЗОЛЯЦИЯ: Система не видит Сервис до клика по кнопке!
-                val serviceIntent = Intent()
-                serviceIntent.setClassName(this@MainActivity, "com.mechpravdy.neo.BrainOverlayService")
+                // 2. Переключаем режим локального ИИ
+                localAiMode = !localAiMode
                 
-                if (checkButton.text.toString() == "ВЫКЛ МОЗГ" || checkButton.text.toString() == "ЗАГРУЗКА...") {
-                    stopService(serviceIntent)
+                if (localAiMode) {
+                    // Кнопка включена -> Текст загорается оранжевым светом
+                    checkButton.setTextColor(Color.parseColor("#FF8C00")) 
+                    checkButton.text = "ВЫКЛ МОЗГ"
                     
-                    // Выключаем слежку обратно:
-                    brainObserver?.stopWatching()
+                    // Создаем пустые файлы-мосты в песочнице, чтобы подготовить IPC
+                    File(filesDir, "brain_query.txt").createNewFile()
+                    File(filesDir, "brain_response.txt").createNewFile()
                     
-                    checkButton.text = "МОЗГ"
-                    appendChat("[МОЗГ] Локальный ИИ отключен. Модель выгружена из памяти.")
-                    switchToGigaChat()
-                } else {
-                    checkButton.text = "ЗАГРУЗКА..."
-                    setStatus("Запуск процесса...", "yellow")
-                    
-                    val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
-                    if (savedPath != null && File(savedPath).exists()) {
-                        startService(serviceIntent)
-                        
-                        // Запускаем слежку за файлом ТОЛЬКО СЕЙЧАС:
-                        brainObserver?.startWatching()
-                        
-                        checkButton.text = "ВЫКЛ МОЗГ"
-                        appendChat("[МОЗГ] Процесс запущен в отдельном окне. Загрузка GGUF...")
-                    } else {
-                        checkButton.text = "МОЗГ"
-                        AlertDialog.Builder(this@MainActivity)
-                            .setTitle("Выбор модели")
-                            .setMessage("Выберите GGUF-файл модели для локального ИИ.")
-                            .setPositiveButton("Выбрать файл") { _, _ -> modelFileLauncher.launch("*/*") }
-                            .setNegativeButton("Отмена", null)
-                            .show()
+                    // Запускаем пустое Activity оверлея (оно улетает на холостой ход)
+                    val intent = Intent().apply {
+                        setClassName(this@MainActivity, "com.mechpravdy.neo.BrainFloatingWindow")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
                     }
+                    try {
+                        startActivity(intent)
+                        appendChat("[СИСТЕМА] Процесс С++ запущен. Оверлей ожидает модель...")
+                    } catch (e: Exception) {
+                        appendChat("[ОШИБКА] Не удалось открыть окно Мозга: ${e.message}")
+                    }
+                } else {
+                    // Кнопка выключена -> Текст возвращается в фирменный зелёный цвет
+                    checkButton.setTextColor(Color.parseColor("#1A8A2E")) 
+                    checkButton.text = "МОЗГ"
+                    
+                    // Отправляем команду мягкого закрытия активности BrainFloatingWindow
+                    val intent = Intent().apply {
+                        setClassName(this@MainActivity, "com.mechpravdy.neo.BrainFloatingWindow")
+                        putExtra("ACTION", "CLOSE")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                    appendChat("[СИСТЕМА] Локальный процесс С++ остановлен.")
                 }
+            }
+            
+            // ===== КНОПКА КОМПЬЮТЕРА (btmPC) =====
+            btmPC.setOnClickListener {
+                hideKeyboard()
+                
+                // КРИТИЧЕСКИЙ ШАГ: Гарантируем наличие папки-песочницы
+                if (!filesDir.exists()) {
+                    filesDir.mkdirs()
+                }
+                
+                val modelFile = File(filesDir, "local_model.gguf") // Ищем файл строго в песочнице
+
+                // Создаем кастомный белый фон с зеленым контуром и круглыми краями для диалога
+                val dialogBg = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.WHITE) // Белый фон окна
+                    cornerRadius = 24f * resources.displayMetrics.density // Закругленные края
+                    setStroke((1.5f * resources.displayMetrics.density).toInt(), Color.parseColor("#1A8A2E")) // Зеленый контур
+                }
+
+                val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+                
+                if (modelFile.exists()) {
+                    // ВАРИАНТ А: Модель уже внутри песочницы
+                    builder.setTitle("Локальный ИИ")
+                    builder.setMessage("Модель local_model.gguf готова к запуску.")
+                    
+                    // Кнопка запуска загорается оранжевым цветом (активное действие)
+                    builder.setPositiveButton("ЗАПУСТИТЬ") { dialog, _ ->
+                        if (localAiMode) {
+                            // Передаем команду запуска "холостому" оверлею через файл-мост
+                            val cmdFile = File(filesDir, "brain_query.txt")
+                            cmdFile.writeText("CMD_LOAD_NEW")
+                            appendChat("[СИСТЕМА] Сигнал на загрузку весов отправлен в C++ движок.")
+                        } else {
+                            appendChat("[СИСТЕМА] Сначала включите кнопку МОЗГ, чтобы запустить оверлей!")
+                        }
+                        dialog.dismiss()
+                    }
+                    
+                    // Кнопка удаления модели
+                    builder.setNegativeButton("Удалить модель") { dialog, _ ->
+                        // Сначала просим С++ движок освободить ОЗУ и закрыть доступ к файлу
+                        File(filesDir, "brain_query.txt").writeText("CMD_UNLOAD")
+                        
+                        // Небольшая задержка, чтобы JS-процесс успел отпустить mmap файла весов
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            if (modelFile.delete()) {
+                                appendChat("[СИСТЕМА] Модель успешно удалена из песочницы приложения.")
+                            } else {
+                                appendChat("[ОШИБКА] Не удалось стереть файл. Он удерживается C++ процессом.")
+                            }
+                        }, 400)
+                        dialog.dismiss()
+                    }
+                } else {
+                    // ВАРИАНТ Б: Песочница пуста, запрашиваем абсолютно любую ссылку
+                    builder.setTitle("Загрузка модели")
+                    builder.setMessage("Вставьте любую прямую ссылку на поток данных модели:")
+                    
+                    // Бело-зеленый стиль для поля ввода
+                    val input = android.widget.EditText(this).apply {
+                        hint = "https://example.com"
+                        setTextColor(Color.BLACK)
+                        setHintTextColor(Color.GRAY)
+                    }
+                    builder.setView(input)
+
+                    builder.setPositiveButton("СКАЧАТЬ") { dialog, _ ->
+                        val url = input.text.toString().trim()
+                        if (url.isNotEmpty()) {
+                            // Вызов метода скачивания потока данных
+                            startDownloadingModel(url)
+                        } else {
+                            appendChat("[СИСТЕМА] Ссылка не может быть пустой.")
+                        }
+                        dialog.dismiss()
+                    }
+                    
+                    builder.setNegativeButton("Отмена") { dialog, _ -> dialog.dismiss() }
+                }
+
+                val alertDialog = builder.create()
+                alertDialog.show()
+                
+                // ВАЖНО: Применяем созданный закругленный белый фон строго ПОСЛЕ вызова show()
+                alertDialog.window?.setBackgroundDrawable(dialogBg)
             }
             
             capsuleButton.setOnClickListener { hideKeyboard(); requestPassword { showCapsuleDialog() } }
@@ -357,7 +535,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            // Слежка запускается только при клике на кнопку МОЗГ
         } catch (_: Exception) {}
     }
 
@@ -372,14 +549,80 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         brainObserver?.stopWatching()
         brainObserver = null
-        try {
-            LlamaJNI.unloadModel()
-        } catch (_: Throwable) {}
         tts?.stop()
         tts?.shutdown()
     }
 
-    // ===== НОВЫЙ МЕТОД: ОТПРАВКА В ЛОКАЛЬНУЮ МОДЕЛЬ ЧЕРЕЗ ФАЙЛ =====
+    // ===== СКАЧИВАНИЕ МОДЕЛИ ПО ССЫЛКЕ (НОВЫЙ МЕТОД) =====
+    private fun startDownloadingModel(urlString: String) {
+        appendChat("[СИСТЕМА] Инициализация подключения к источнику данных...")
+
+        // Запускаем фоновый поток, чтобы загрузка не фризила бело-зелёный интерфейс чата
+        Thread {
+            try {
+                val url = java.net.URL(urlString)
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.connect()
+
+                // Проверяем, ответил ли сервер успешно
+                if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                    runOnUiThread {
+                        appendChat("[ОШИБКА] Сервер вернул код ответа: ${connection.responseCode}")
+                    }
+                    return@Thread
+                }
+
+                val fileLength = connection.contentLength
+                val input = java.io.BufferedInputStream(connection.inputStream)
+                
+                // Задаём путь строго внутрь приватной изолированной песочницы приложения
+                val outputFile = File(filesDir, "local_model.gguf")
+                val output = java.io.FileOutputStream(outputFile)
+
+                val data = ByteArray(8192) // Буфер для чтения потока данных
+                var total: Long = 0
+                var count: Int
+                var lastReportedProgress = -5 // Шаг логирования прогресса в чат
+
+                while (input.read(data).also { count = it } != -1) {
+                    total += count
+                    if (fileLength > 0) {
+                        val progress = ((total * 100) / fileLength).toInt()
+                        // Выводим прогресс в чат каждые 5%, чтобы не перегружать интерфейс сообщениями
+                        if (progress >= lastReportedProgress + 5) {
+                            lastReportedProgress = progress
+                            runOnUiThread {
+                                appendChat("[ЗАГРУЗКА] Извлечение потока данных... $progress%")
+                            }
+                        }
+                    }
+                    output.write(data, 0, count)
+                }
+
+                // Закрываем все потоки и соединения
+                output.flush()
+                output.close()
+                input.close()
+                connection.disconnect()
+
+                // Успешный финал загрузки
+                runOnUiThread {
+                    appendChat("[СИСТЕМА] Поток успешно сохранён в песочницу! local_model.gguf готова.")
+                    // Принудительно вызываем клик по кнопке-компьютеру, 
+                    // чтобы сразу открыть диалог в состоянии Варианта А (с кнопкой "ЗАПУСТИТЬ")
+                    btmPC.performClick()
+                }
+
+            } catch (e: Exception) {
+                runOnUiThread {
+                    appendChat("[ОШИБКА] Сбой при загрузке потока данных: ${e.message}")
+                }
+            }
+        }.start()
+    }
+
     private fun sendToLocal(msg: String) {
         setStatus("Думаю...", "yellow")
         appendChat("[BATYA] $msg")
@@ -416,13 +659,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun recognizeTextFromBitmap(bitmap: Bitmap) {
         setStatus("Распознаю текст...", "yellow")
-        
-        val recognizer = TextRecognition.getClient(
-            ChineseTextRecognizerOptions.Builder().build()
-        )
-        
+        val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
         val image = InputImage.fromBitmap(bitmap, 0)
-        
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
                 val recognizedText = visionText.text
@@ -446,14 +684,12 @@ class MainActivity : AppCompatActivity() {
         maxTokens = prefs.getInt("max_tokens", 1000)
         temperature = prefs.getFloat("temperature", 0.7f)
         password = prefs.getString("password", "связность") ?: "связность"
-        
         val savedGigaChatUrl = prefs.getString("giga_chat_url", null)
         if (savedGigaChatUrl != null) apiUrlGigaChat = savedGigaChatUrl
         val savedDeepSeekUrl = prefs.getString("deep_seek_url", null)
         if (savedDeepSeekUrl != null) apiUrlDeepSeek = savedDeepSeekUrl
         val savedCloudModel = prefs.getString("cloud_model", null)
         if (savedCloudModel != null) modelCloud = savedCloudModel
-        
         updateCloudClient()
     }
     
@@ -800,7 +1036,7 @@ class MainActivity : AppCompatActivity() {
 ОСНОВНЫЕ КНОПКИ ВНИЗУ:
 - ОТПРАВИТЬ - отправить сообщение
 - СМОТРЕТЬ - сделать фото для анализа
-- МОЗГ - запустить/остановить локальный ИИ в изолированном процессе
+- МОЗГ - запустить/остановить локальный ИИ
 - КАПСУЛА - открыть летопись Нео (пароль)
 
 АКТИВАЦИЯ НЕО:
@@ -811,12 +1047,12 @@ class MainActivity : AppCompatActivity() {
 Напишите: сделай выводы и запомни
 ИИ запишет главное в свой мозг (brain.txt).
 
-КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ В ИЗОЛИРОВАННОМ ПРОЦЕССЕ):
+КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ):
 1. Нажмите кнопку МОЗГ.
 2. Если нет разрешения - откроются настройки.
-3. Выберите GGUF-файл модели.
-4. Нажмите МОЗГ ещё раз для запуска сервиса.
-5. Модель загрузится в изолированном процессе.
+3. Вставьте ссылку на .gguf файл модели.
+4. Модель загрузится в песочницу приложения.
+5. Нажмите МОЗГ ещё раз для запуска.
 6. Отправляйте сообщения через ОТПРАВИТЬ.
 7. Ответы приходят через файловый мост.
 8. Повторное нажатие ВЫКЛ МОЗГ выгружает модель.
@@ -1136,12 +1372,46 @@ class MainActivity : AppCompatActivity() {
         val token = tokenInput.text.toString().trim()
         val msg = messageInput.text.toString().trim()
 
-        // Проверка: если сервис BrainOverlayService активен, отправляем через файловый мост
-        if (checkButton.text.toString() == "ВЫКЛ МОЗГ") {
-            if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
-            if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
-            if (msg.lowercase().contains(rememberCommand)) { analyzeAndRemember(); messageInput.setText(""); hideKeyboard(); return }
-            sendToLocal(msg)
+        // ===== БЛОК ЛОКАЛЬНОГО ИИ С ПОДДЕРЖКОЙ НЕО =====
+        if (localAiMode) {
+            val messageText = messageInput.text.toString().trim() // Твое поле ввода текста
+            if (messageText.isEmpty()) return
+
+            appendChat("[ВЫ]: $messageText")
+            messageInput.setText("") // Очищаем поле ввода
+
+            // 1. Считываем текст Капсулы (системного промпта) из внутренней памяти
+            val capsuleFile = File(filesDir, "capsule_prompt.txt") // Или имя твоего файла капсулы
+            val capsulePrompt = if (capsuleFile.exists()) capsuleFile.readText().trim() else "You are a helpful assistant."
+
+            // 2. Учитываем режим НЕО / БАТЯ
+            val finalPrompt = if (isNeoMode) {
+                "System: $capsulePrompt\n\nUser: [BATYA] $messageText\nAssistant:"
+            } else {
+                "System: $capsulePrompt\n\nUser: $messageText\nAssistant:"
+            }
+
+            // 3. Записываем готовую сборку в песочницу для С++ движка
+            val queryFile = File(filesDir, "brain_query.txt")
+            queryFile.writeText(finalPrompt)
+
+            // 4. Запускаем нативный FileObserver, который будет ждать ответ от оверлея
+            val responseFile = File(filesDir, "brain_response.txt")
+            var responseObserver: FileObserver? = null
+            
+            responseObserver = object : FileObserver(responseFile.path, CLOSE_WRITE) {
+                override fun onEvent(event: Int, path: String?) {
+                    // Как только С++ движок запишет ответ — выводим его в чат Меча
+                    val aiResponse = try { responseFile.readText().trim() } catch (e: Exception) { "" }
+                    if (aiResponse.isNotEmpty()) {
+                        runOnUiThread {
+                            appendChat("[МОЗГ]: $aiResponse")
+                        }
+                        responseObserver?.stopWatching() // Останавливаем слежку до следующего запроса
+                    }
+                }
+            }
+            responseObserver.startWatching()
             return
         }
 
