@@ -246,7 +246,7 @@ class MainActivity : AppCompatActivity() {
                     return@Thread
                 }
 
-                // Определяем имя файла
+                // Определяем имя файла из заголовка или URL
                 var fileName = "model.gguf"
                 val disposition = connection.getHeaderField("Content-Disposition")
                 if (disposition != null && disposition.contains("filename=")) {
@@ -279,7 +279,6 @@ class MainActivity : AppCompatActivity() {
                             output.write(buffer, 0, bytesRead)
                             downloaded += bytesRead
 
-                            // Обновляем прогресс каждые 5 МБ
                             if (totalSize > 0 && (downloaded - lastProgress >= 5 * 1024 * 1024 || downloaded == totalSize)) {
                                 lastProgress = downloaded
                                 val percent = (downloaded * 100 / totalSize).toInt()
