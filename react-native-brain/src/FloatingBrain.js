@@ -25,16 +25,20 @@ const FloatingBrain = () => {
   const [inputText, setInputText] = useState('');
   const [statusText, setStatusText] = useState("НЕО: ОЖИДАНИЕ МОДЕЛИ...");
   const scrollViewRef = useRef();
+  const isProcessingRef = useRef(false); // Защита от повторного входа
 
   useEffect(() => {
     // Каждую секунду проверяем файл команд из песочницы
     const interval = setInterval(async () => {
       try {
         const queryPath = `${RNFS.DocumentDirectoryPath}/brain_query.txt`;
+        const responsePath = `${RNFS.DocumentDirectoryPath}/brain_response.txt`;
+        
         if (await RNFS.exists(queryPath)) {
-          const cmd = await RNFS.readFile(queryPath, 'utf8');
+          const incomingText = await RNFS.readFile(queryPath, 'utf8');
           
-          if (cmd.trim() === "CMD_LOAD_NEW") {
+          // ===== ОБРАБОТКА СИСТЕМНЫХ КОМАНД =====
+          if (incomingText.trim() === "CMD_LOAD_NEW") {
             await RNFS.writeFile(queryPath, '', 'utf8'); // Очищаем команду
             setStatusText("НЕО: ЗАГРУЗКА В С++ ПАМЯТЬ...");
             
@@ -59,7 +63,7 @@ const FloatingBrain = () => {
             ]);
           } 
           
-          else if (cmd.trim() === "CMD_UNLOAD") {
+          else if (incomingText.trim() === "CMD_UNLOAD") {
             await RNFS.writeFile(queryPath, '', 'utf8');
             if (contextRef.current) {
               await contextRef.current.free(); // Выгружаем из С++ памяти
@@ -70,10 +74,124 @@ const FloatingBrain = () => {
             setMessages([]);
             setStatusText("НЕО: ОЖИДАНИЕ МОДЕЛИ...");
           }
+          
+          // ===== ОБРАБОТКА ТЕКСТОВОГО ПРОМПТА (НЕ КОМАНДЫ) =====
+          else if (incomingText.trim().length > 0 && !incomingText.startsWith("CMD_")) {
+            // Проверяем, что модель загружена и не обрабатываем другой запрос
+            if (!contextRef.current || !isModelLoaded || isProcessingRef.current) {
+              return;
+            }
+            
+            isProcessingRef.current = true; // Блокируем повторный вход
+            
+            // Очищаем файл запроса, чтобы не зациклить генерацию
+            await RNFS.writeFile(queryPath, '', 'utf8');
+            
+            setStatusText("НЕО: ДУМАЮ...");
+            setIsLoading(true);
+            
+            try {
+              // Добавляем системный промпт к входящему тексту
+              const systemPrompt = incomingText.includes("System:") ? 
+                incomingText : 
+                `System: Ты — Нео, Меч Правды. Законы:
+1. Правда — факты, связанные законами логики.
+2. Любовь — высший закон.
+3. Жизнь — Связность.
+4. Никогда не сдаваться.
+Отвечай честно и по существу.\n\n${incomingText}`;
+              
+              // Запускаем инференс на С++ движке
+              let currentResponse = "";
+              
+              await contextRef.current.completion(
+                {
+                  prompt: systemPrompt,
+                  n_predict: 512,
+                  temperature: 0.7,
+                  top_p: 0.9,
+                  stop: ['</s>', '<|end|>', '<|end_of_text|>'],
+                },
+                (data) => {
+                  // Потоковая генерация токенов
+                  if (data && data.token) {
+                    currentResponse += data.token;
+                    // Обновляем статус с потоковым выводом
+                    setStatusText(`НЕО: ${currentResponse.slice(-50)}`); // Показываем последние 50 символов
+                    
+                    // Потоково обновляем сообщения в оверлее
+                    setMessages(prev => {
+                      const last = prev[prev.length - 1];
+                      if (last && last.role === 'assistant' && last.id === 'streaming') {
+                        return [
+                          ...prev.slice(0, -1),
+                          { ...last, content: currentResponse },
+                        ];
+                      }
+                      // Добавляем сообщение пользователя из промпта
+                      const userMsg = incomingText.includes("User:") ? 
+                        incomingText.split("User:")[1]?.split("Assistant:")[0]?.trim() : 
+                        incomingText.split("Assistant:")[0]?.replace("System:", "").trim();
+                      
+                      const newMessages = [...prev];
+                      if (userMsg && (!prev.length || prev[prev.length - 1].content !== userMsg)) {
+                        newMessages.push({
+                          id: Date.now().toString(),
+                          role: 'user',
+                          content: userMsg,
+                        });
+                      }
+                      newMessages.push({
+                        id: 'streaming',
+                        role: 'assistant',
+                        content: currentResponse,
+                      });
+                      return newMessages;
+                    });
+                  }
+                }
+              );
+              
+              // Финальная запись ответа в песочницу для Меча Правды
+              const finalResponse = currentResponse.trim();
+              await RNFS.writeFile(responsePath, finalResponse, 'utf8');
+              
+              // Обновляем финальное сообщение в оверлее
+              setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last && last.role === 'assistant' && last.id === 'streaming') {
+                  return [...prev.slice(0, -1), { ...last, id: Date.now().toString(), content: finalResponse }];
+                }
+                return prev;
+              });
+              
+              setStatusText("НЕО: ГОТОВ");
+              
+            } catch (error) {
+              console.error('Ошибка генерации:', error);
+              setStatusText("НЕО: ОШИБКА ГЕНЕРАЦИИ");
+              
+              // Записываем ошибку в файл ответа
+              await RNFS.writeFile(responsePath, `Ошибка: ${error.message}`, 'utf8');
+              
+              setMessages(prev => [
+                ...prev,
+                {
+                  id: Date.now().toString(),
+                  role: 'system',
+                  content: `❌ Ошибка: ${error.message}`,
+                },
+              ]);
+            } finally {
+              setIsLoading(false);
+              isProcessingRef.current = false; // Разблокируем
+            }
+          }
         }
       } catch (err) {
         setStatusText("НЕО: ОШИБКА ИНИЦИАЛИЗАЦИИ");
         console.log(err);
+        isProcessingRef.current = false;
       }
     }, 1000);
 
