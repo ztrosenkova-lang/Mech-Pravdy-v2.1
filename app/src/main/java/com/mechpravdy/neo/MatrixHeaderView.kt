@@ -272,10 +272,16 @@ class MatrixHeaderView @JvmOverloads constructor(
 
         val btnPaint = Paint().apply { isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
         val btnTextPaint = Paint().apply { color = Color.WHITE; isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
-        btnPaint.color = if (gigaChatMode) Color.parseColor("#21A038") else Color.parseColor("#555555")
+        
+        // 1. ЦВЕТ ДЛЯ КНОПКИ ГИГАЧАТ
+        // Если режим gigaChatMode включен — красим в оранжевый, если выключен — возвращаем в зеленый
+        btnPaint.color = if (gigaChatMode) Color.parseColor("#FF9800") else Color.parseColor("#1A8A2E")
         canvas.drawRoundRect(neoButtonRect, 10f, 10f, btnPaint)
         canvas.drawText("ГИГАЧАТ", neoButtonRect.centerX(), neoButtonRect.centerY() + 5f, btnTextPaint)
-        btnPaint.color = if (localMode) Color.parseColor("#FF8800") else Color.parseColor("#555555")
+        
+        // 2. ЦВЕТ ДЛЯ КНОПКИ ОБЛАЧНЫЙ
+        // Если режим localMode включен — красим в оранжевый, если выключен — возвращаем в зеленый
+        btnPaint.color = if (localMode) Color.parseColor("#FF9800") else Color.parseColor("#1A8A2E")
         canvas.drawRoundRect(localButtonRect, 10f, 10f, btnPaint)
         canvas.drawText("ОБЛАЧНЫЙ", localButtonRect.centerX(), localButtonRect.centerY() + 5f, btnTextPaint)
 
@@ -360,8 +366,18 @@ class MatrixHeaderView @JvmOverloads constructor(
 
     fun handleTouch(x: Float, y: Float) {
         when {
-            neoButtonRect.contains(x, y) -> onNeoClick?.invoke()
-            localButtonRect.contains(x, y) -> onLocalClick?.invoke()
+            neoButtonRect.contains(x, y) -> {
+                gigaChatMode = !gigaChatMode
+                if (gigaChatMode) localMode = false
+                invalidate() // Мгновенно перерисовывает кнопку (включает оранжевый/зеленый)
+                onNeoClick?.invoke()
+            }
+            localButtonRect.contains(x, y) -> {
+                localMode = !localMode
+                if (localMode) gigaChatMode = false
+                invalidate() // Мгновенно перерисовывает кнопку (включает оранжевый/зеленый)
+                onLocalClick?.invoke()
+            }
             helpButtonRect.contains(x, y) -> onHelpClick?.invoke()
             exitButtonRect.contains(x, y) -> onExitClick?.invoke()
             localRowButtonRect.contains(x, y) -> onLocalRowClick?.invoke()
