@@ -46,11 +46,14 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
-        <!-- ===== ИЗОЛИРОВАННЫЙ СЕРВИС МОЗГА ===== -->
-        <service 
-            android:name=".BrainOverlayService" 
-            android:process=":brain_process" 
-            android:exported="false" />
+        <!-- ===== ПЛАВАЮЩЕЕ ОКНО МОЗГА (Activity вместо Service) ===== -->
+        <activity
+            android:name=".BrainOverlayService"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance" />
 
         <!-- ===== ПЛАВАЮЩЕЕ ОКНО REACT NATIVE (ACTIVITY) ===== -->
         <activity
