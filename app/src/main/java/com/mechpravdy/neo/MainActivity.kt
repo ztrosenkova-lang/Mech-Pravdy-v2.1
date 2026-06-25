@@ -226,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ (ПОДДЕРЖКА ЛЮБЫХ ССЫЛОК) =====
+    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ =====
     private fun startModelDownload(urlString: String) {
         val modelsDir = File(filesDir, "models")
         if (!modelsDir.exists()) modelsDir.mkdirs()
@@ -246,7 +246,6 @@ class MainActivity : AppCompatActivity() {
                     return@Thread
                 }
 
-                // Определяем имя файла из заголовка или URL
                 var fileName = "model.gguf"
                 val disposition = connection.getHeaderField("Content-Disposition")
                 if (disposition != null && disposition.contains("filename=")) {
@@ -254,39 +253,15 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     val path = url.path
                     val rawName = path.substringAfterLast("/")
-                    if (rawName.isNotEmpty()) {
-                        fileName = rawName.substringBefore("?")
-                    }
+                    if (rawName.isNotEmpty()) fileName = rawName.substringBefore("?")
                 }
 
                 val modelFile = File(modelsDir, fileName)
-                val totalSize = connection.contentLength
-
-                runOnUiThread {
-                    appendChat("[МОЗГ] Загрузка: $fileName")
-                    if (totalSize > 0) {
-                        appendChat("[МОЗГ] Размер: ${"%,d".format(totalSize / 1024 / 1024)} МБ")
-                    }
-                }
+                appendChat("[МОЗГ] Загрузка: $fileName")
 
                 connection.inputStream.use { input ->
                     modelFile.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        var downloaded = 0L
-                        var lastProgress = 0L
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloaded += bytesRead
-
-                            if (totalSize > 0 && (downloaded - lastProgress >= 5 * 1024 * 1024 || downloaded == totalSize)) {
-                                lastProgress = downloaded
-                                val percent = (downloaded * 100 / totalSize).toInt()
-                                runOnUiThread {
-                                    setStatus("Загрузка: $percent%", "yellow")
-                                }
-                            }
-                        }
+                        input.copyTo(output)
                     }
                 }
 
