@@ -272,10 +272,10 @@ class MainActivity : AppCompatActivity() {
                                     // Просим систему удалить временный файл из общих загрузок
                                     downloadManager.remove(downloadId)
 
-                                    // Шаг 3: btmPC.performClick() внутри runOnUiThread
+                                    // Исправленный вызов: ищем кнопку через findViewById в UI-потоке
                                     runOnUiThread {
                                         appendChat("[МОЗГ] Системная загрузка завершена! Веса успешно зашли в песочницу.")
-                                        btmPC.performClick() // Теперь клик находится строго внутри главного UI-потока!
+                                        findViewById<Button>(R.id.btmPC).performClick() // Ищем кнопку напрямую в UI-потоке!
                                     }
                                 }
                             } catch (e: Exception) {
