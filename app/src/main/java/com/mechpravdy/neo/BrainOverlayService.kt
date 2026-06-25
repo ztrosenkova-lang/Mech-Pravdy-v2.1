@@ -7,30 +7,50 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.FileObserver
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.Process
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
+import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import java.io.File
 
 class BrainOverlayService : Service() {
     private lateinit var windowManager: WindowManager
-    private var floatingView: TextView? = null
+    private var floatingLayout: LinearLayout? = null
+    private var statusText: TextView? = null
+    private var progressBar: ProgressBar? = null
     private var queryObserver: FileObserver? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val path = intent?.getStringExtra("MODEL_PATH")
-        if (path != null && java.io.File(path).exists()) {
+        if (path != null && File(path).exists()) {
+            updateStatus("ЗАГРУЖАЮ МОДЕЛЬ...")
+            showProgress(true)
             Thread {
                 try {
                     val ok = LlamaJNI.loadModel(path, 2048)
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        floatingView?.text = if (ok) "НЕО: ГОТОВ" else "НЕО: ОШИБКА"
+                    mainHandler.post {
+                        if (ok) {
+                            updateStatus("НЕО: ГОТОВ")
+                        } else {
+                            updateStatus("ОШИБКА ЗАГРУЗКИ")
+                        }
+                        showProgress(false)
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    mainHandler.post {
+                        updateStatus("ОШИБКА: ${e.message}")
+                        showProgress(false)
+                    }
+                }
             }.start()
         }
         return START_NOT_STICKY
@@ -40,21 +60,36 @@ class BrainOverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        // Создаем стильное бело-прозрачное окно с закругленными краями
-        floatingView = TextView(this).apply {
-            text = "НЕО: МОЗГ"
-            setTextColor(Color.parseColor("#1A8A2E")) // Фирменный зеленый цвет Меча
+        // Создаём контейнер — вертикальный LinearLayout
+        floatingLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(24, 16, 24, 16)
-            textSize = 12f
             
-            // Нативно закругляем края и делаем бело-прозрачный фон (75% непрозрачности)
+            // Закруглённый бело-прозрачный фон
             val shape = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.parseColor("#C0FFFFFF")) // Белый цвет + альфа-канал прозрачности
-                cornerRadius = 24f // Радиус закругления краев окна
-                setStroke(2, Color.parseColor("#1A8A2E")) // Тонкая зеленая рамка по контуру
+                setColor(Color.parseColor("#C0FFFFFF"))
+                cornerRadius = 24f
+                setStroke(2, Color.parseColor("#1A8A2E"))
             }
             background = shape
         }
+
+        // Текст статуса
+        statusText = TextView(this).apply {
+            text = "НЕО: МОЗГ"
+            setTextColor(Color.parseColor("#1A8A2E"))
+            textSize = 12f
+            gravity = Gravity.CENTER
+        }
+        floatingLayout?.addView(statusText)
+
+        // Полоска загрузки (по умолчанию скрыта)
+        progressBar = ProgressBar(this).apply {
+            isIndeterminate = true
+            visibility = View.GONE
+            setPadding(0, 8, 0, 0)
+        }
+        floatingLayout?.addView(progressBar)
 
         val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -69,13 +104,12 @@ class BrainOverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            // Центрируем окно по горизонтали — оно встанет ровно посередине экрана
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            x = 0 
-            y = 120 // Высота от верха экрана, чтобы окно встало на уровне Мурзехи
+            x = 0
+            y = 120
         }
 
-        windowManager.addView(floatingView, params)
+        windowManager.addView(floatingLayout, params)
 
         val queryFile = File(filesDir, "brain_query.txt")
         val responseFile = File(filesDir, "brain_response.txt")
@@ -86,6 +120,12 @@ class BrainOverlayService : Service() {
                 if (queryText.isNotBlank()) {
                     try { queryFile.writeText("") } catch (_: Exception) {}
 
+                    // Показываем, что думаем
+                    mainHandler.post {
+                        updateStatus("ДУМАЮ...")
+                        showProgress(true)
+                    }
+
                     Thread {
                         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
                         try {
@@ -95,8 +135,18 @@ class BrainOverlayService : Service() {
                                 "[МОЗГ] Ошибка: GGUF модель не загружена в память процесса."
                             }
                             responseFile.writeText(aiResponse)
+
+                            // Ответ сгенерирован — убираем полоску
+                            mainHandler.post {
+                                updateStatus("НЕО: ГОТОВ")
+                                showProgress(false)
+                            }
                         } catch (e: Exception) {
                             try { responseFile.writeText("[ОШИБКА GGUF] ${e.message}") } catch (_: Exception) {}
+                            mainHandler.post {
+                                updateStatus("ОШИБКА: ${e.message}")
+                                showProgress(false)
+                            }
                         }
                     }.start()
                 }
@@ -104,8 +154,7 @@ class BrainOverlayService : Service() {
         }
         queryObserver?.startWatching()
 
-        // ДИНАМИЧЕСКАЯ ЗАГРУЗКА: C++ слой начинает грузиться ТОЛЬКО СЕЙЧАС,
-        // когда сервис уже успешно запущен кнопкой, полностью изолированно от Меча!
+        // Фоновая загрузка нативной библиотеки
         Thread {
             try {
                 System.loadLibrary("llama")
@@ -116,12 +165,19 @@ class BrainOverlayService : Service() {
         }.start()
     }
 
+    private fun updateStatus(text: String) {
+        statusText?.text = text
+    }
+
+    private fun showProgress(show: Boolean) {
+        progressBar?.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         queryObserver?.stopWatching()
-        floatingView?.let { windowManager.removeView(it) }
-        
-        // ВЫГРУЗКА ИЗ ПАМЯТИ: Полностью очищаем ОЗУ при выключении кнопки
+        floatingLayout?.let { windowManager.removeView(it) }
+
         try {
             LlamaJNI.unloadModel()
         } catch (_: Exception) {}
