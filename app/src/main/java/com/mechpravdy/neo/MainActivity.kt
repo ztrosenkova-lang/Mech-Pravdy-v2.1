@@ -228,7 +228,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ (ОРИГИНАЛЬНЫЙ МЕТОД) =====
+    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ (ИСПРАВЛЕННЫЙ МЕТОД) =====
     private fun startModelDownload(urlString: String) {
         val modelsDir = File(filesDir, "models")
         if (!modelsDir.exists()) modelsDir.mkdirs()
@@ -275,6 +275,8 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     appendChat("[МОЗГ] Поток успешно сохранен: $fileName (${modelFile.length() / 1024 / 1024} МБ)")
                     appendChat("[МОЗГ] Нажмите кнопку КОМПЬЮТЕР снова.")
+                    // КРИТИЧЕСКИЙ ФИКС: автоматически открываем диалог с кнопкой "ЗАПУСТИТЬ"
+                    btmPC.performClick()
                 }
             } catch (e: Exception) {
                 runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: ${e.message}") }
@@ -505,6 +507,7 @@ class MainActivity : AppCompatActivity() {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
+            // Шаг 2: Явный префикс android.os.FileObserver
             brainObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
@@ -1306,6 +1309,7 @@ class MainActivity : AppCompatActivity() {
             val queryFile = File(filesDir, "brain_query.txt")
             queryFile.writeText(finalPrompt)
 
+            // Шаг 3: Явный префикс android.os.FileObserver
             val responseFile = File(filesDir, "brain_response.txt")
             var responseObserver: android.os.FileObserver? = null
             
