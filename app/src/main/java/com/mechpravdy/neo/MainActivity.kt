@@ -215,6 +215,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             
+            loadSettings()
+            
             matrixHeader = findViewById(R.id.matrixHeader)
             authKeyInput = findViewById(R.id.authKeyInput)
             generateButton = findViewById(R.id.generateButton)
@@ -234,7 +236,18 @@ class MainActivity : AppCompatActivity() {
 
             matrixHeader.onNeoClick = { switchToGigaChat() }
             matrixHeader.onLocalClick = { switchToDeepSeek() }
-            // Кнопка с компьютером удалена — левая сторона свободна под оверлей-окно
+            matrixHeader.onLocalRowClick = {
+                val options = arrayOf("PocketPal AI", "AboDeLLM")
+                AlertDialog.Builder(this)
+                    .setTitle("Запустить локальный ИИ")
+                    .setItems(options) { _, which ->
+                        when (which) {
+                            0 -> launchExternalApp("com.pocketpalai", "com.pocketpal.MainActivity")
+                            1 -> launchExternalApp("com.tricenc.abodellm", "com.tricenc.abodellm.MainActivity")
+                        }
+                    }
+                    .show()
+            }
             matrixHeader.onHelpClick = { showHelpDialog() }
             matrixHeader.onClearClick = { clearChat() }
             matrixHeader.onExitClick = { deactivateNeo() }
@@ -298,7 +311,6 @@ class MainActivity : AppCompatActivity() {
                     
                     val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
                     if (savedPath != null && File(savedPath).exists()) {
-                        serviceIntent.putExtra("MODEL_PATH", savedPath)
                         startService(serviceIntent)
                         
                         // Запускаем слежку за файлом ТОЛЬКО СЕЙЧАС:
@@ -320,8 +332,6 @@ class MainActivity : AppCompatActivity() {
             
             capsuleButton.setOnClickListener { hideKeyboard(); requestPassword { showCapsuleDialog() } }
             matrixHeader.onMurzikClick = { activateNeo() }
-
-            loadSettings()
 
             requestAllPermissions()
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
@@ -362,6 +372,9 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         brainObserver?.stopWatching()
         brainObserver = null
+        try {
+            LlamaJNI.unloadModel()
+        } catch (_: Throwable) {}
         tts?.stop()
         tts?.shutdown()
     }
