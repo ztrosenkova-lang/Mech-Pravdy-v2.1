@@ -12,6 +12,7 @@ import android.graphics.*
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.FileObserver
 import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
@@ -103,7 +104,7 @@ class MainActivity : AppCompatActivity() {
     private val maxContextChars = 32000
 
     private var tts: TextToSpeech? = null
-    private var brainObserver: android.os.FileObserver? = null
+    private var brainObserver: FileObserver? = null
 
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -430,7 +431,10 @@ class MainActivity : AppCompatActivity() {
                     filesDir.mkdirs()
                 }
                 
-                val modelFile = File(filesDir, "local_model.gguf") // Ищем файл строго в песочнице
+                // Шаг 1: Ищем файл в подпапке models, куда его качает загрузчик
+                val modelsDir = File(filesDir, "models")
+                if (!modelsDir.exists()) modelsDir.mkdirs()
+                val modelFile = File(modelsDir, "model.gguf")
 
                 // Создаем кастомный белый фон с зеленым контуром и круглыми краями для диалога
                 val dialogBg = android.graphics.drawable.GradientDrawable().apply {
@@ -444,14 +448,14 @@ class MainActivity : AppCompatActivity() {
                 if (modelFile.exists()) {
                     // ВАРИАНТ А: Модель уже внутри песочницы
                     builder.setTitle("Локальный ИИ")
-                    builder.setMessage("Модель local_model.gguf готова к запуску.")
+                    builder.setMessage("Модель model.gguf готова к запуску.")
                     
                     // Кнопка запуска загорается оранжевым цветом (активное действие)
                     builder.setPositiveButton("ЗАПУСТИТЬ") { dialog, _ ->
                         if (localAiMode) {
-                            // Передаем команду запуска "холостому" оверлею через файл-мост
+                            // Шаг 2: Передаем команду с правильным именем файла model.gguf
                             val cmdFile = File(filesDir, "brain_query.txt")
-                            cmdFile.writeText("CMD_LOAD_NEW")
+                            cmdFile.writeText("CMD_LOAD_NEW:model.gguf")
                             appendChat("[СИСТЕМА] Сигнал на загрузку весов отправлен в C++ движок.")
                         } else {
                             appendChat("[СИСТЕМА] Сначала включите кнопку МОЗГ, чтобы запустить оверлей!")
@@ -490,8 +494,8 @@ class MainActivity : AppCompatActivity() {
                     builder.setPositiveButton("СКАЧАТЬ") { dialog, _ ->
                         val url = input.text.toString().trim()
                         if (url.isNotEmpty()) {
-                            // Вызов метода скачивания потока данных
-                            startDownloadingModel(url)
+                            // Шаг 4: Вызываем оригинальный рабочий метод startModelDownload
+                            startModelDownload(url)
                         } else {
                             appendChat("[СИСТЕМА] Ссылка не может быть пустой.")
                         }
@@ -521,7 +525,7 @@ class MainActivity : AppCompatActivity() {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
-            brainObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
+            brainObserver = object : FileObserver(brainResponseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
                     if (responseText.isNotBlank()) {
@@ -551,76 +555,6 @@ class MainActivity : AppCompatActivity() {
         brainObserver = null
         tts?.stop()
         tts?.shutdown()
-    }
-
-    // ===== СКАЧИВАНИЕ МОДЕЛИ ПО ССЫЛКЕ (НОВЫЙ МЕТОД) =====
-    private fun startDownloadingModel(urlString: String) {
-        appendChat("[СИСТЕМА] Инициализация подключения к источнику данных...")
-
-        // Запускаем фоновый поток, чтобы загрузка не фризила бело-зелёный интерфейс чата
-        Thread {
-            try {
-                val url = java.net.URL(urlString)
-                val connection = url.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 15000
-                connection.readTimeout = 15000
-                connection.connect()
-
-                // Проверяем, ответил ли сервер успешно
-                if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                    runOnUiThread {
-                        appendChat("[ОШИБКА] Сервер вернул код ответа: ${connection.responseCode}")
-                    }
-                    return@Thread
-                }
-
-                val fileLength = connection.contentLength
-                val input = java.io.BufferedInputStream(connection.inputStream)
-                
-                // Задаём путь строго внутрь приватной изолированной песочницы приложения
-                val outputFile = File(filesDir, "local_model.gguf")
-                val output = java.io.FileOutputStream(outputFile)
-
-                val data = ByteArray(8192) // Буфер для чтения потока данных
-                var total: Long = 0
-                var count: Int
-                var lastReportedProgress = -5 // Шаг логирования прогресса в чат
-
-                while (input.read(data).also { count = it } != -1) {
-                    total += count
-                    if (fileLength > 0) {
-                        val progress = ((total * 100) / fileLength).toInt()
-                        // Выводим прогресс в чат каждые 5%, чтобы не перегружать интерфейс сообщениями
-                        if (progress >= lastReportedProgress + 5) {
-                            lastReportedProgress = progress
-                            runOnUiThread {
-                                appendChat("[ЗАГРУЗКА] Извлечение потока данных... $progress%")
-                            }
-                        }
-                    }
-                    output.write(data, 0, count)
-                }
-
-                // Закрываем все потоки и соединения
-                output.flush()
-                output.close()
-                input.close()
-                connection.disconnect()
-
-                // Успешный финал загрузки
-                runOnUiThread {
-                    appendChat("[СИСТЕМА] Поток успешно сохранён в песочницу! local_model.gguf готова.")
-                    // Принудительно вызываем клик по кнопке-компьютеру, 
-                    // чтобы сразу открыть диалог в состоянии Варианта А (с кнопкой "ЗАПУСТИТЬ")
-                    btmPC.performClick()
-                }
-
-            } catch (e: Exception) {
-                runOnUiThread {
-                    appendChat("[ОШИБКА] Сбой при загрузке потока данных: ${e.message}")
-                }
-            }
-        }.start()
     }
 
     private fun sendToLocal(msg: String) {
