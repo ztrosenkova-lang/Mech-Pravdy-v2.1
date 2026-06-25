@@ -12,7 +12,6 @@ import android.graphics.*
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.FileObserver
 import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
@@ -104,7 +103,8 @@ class MainActivity : AppCompatActivity() {
     private val maxContextChars = 32000
 
     private var tts: TextToSpeech? = null
-    private var brainObserver: FileObserver? = null
+    // Шаг 1: Явный путь к FileObserver
+    private var brainObserver: android.os.FileObserver? = null
 
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -525,7 +525,8 @@ class MainActivity : AppCompatActivity() {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
-            brainObserver = object : FileObserver(brainResponseFile.path, CLOSE_WRITE) {
+            // Шаг 2: Явный префикс android.os.FileObserver
+            brainObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
                     if (responseText.isNotBlank()) {
@@ -1330,10 +1331,11 @@ class MainActivity : AppCompatActivity() {
             queryFile.writeText(finalPrompt)
 
             // 4. Запускаем нативный FileObserver, который будет ждать ответ от оверлея
+            // Шаг 3: Явный префикс android.os.FileObserver
             val responseFile = File(filesDir, "brain_response.txt")
-            var responseObserver: FileObserver? = null
+            var responseObserver: android.os.FileObserver? = null
             
-            responseObserver = object : FileObserver(responseFile.path, CLOSE_WRITE) {
+            responseObserver = object : android.os.FileObserver(responseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     // Как только С++ движок запишет ответ — выводим его в чат Меча
                     val aiResponse = try { responseFile.readText().trim() } catch (e: Exception) { "" }
