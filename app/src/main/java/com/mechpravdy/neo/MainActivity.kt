@@ -18,7 +18,6 @@ import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.Base64
-import android.util.Log
 import android.widget.*
 import android.view.MotionEvent
 import android.view.View
@@ -37,8 +36,6 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.*
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.*
@@ -168,6 +165,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val modelFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val modelsDir = File(filesDir, "models")
+            if (!modelsDir.exists()) modelsDir.mkdirs()
+            val modelFile = File(modelsDir, "local_model.gguf")
+            try {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    modelFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
+                prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
+                appendChat("[МОЗГ] GGUF-файл сохранён. Нажмите МОЗГ для запуска.")
+            } catch (e: Exception) {
+                appendChat("[МОЗГ] Ошибка копирования файла: ${e.message}")
+            }
+        }
+    }
+
     private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
         override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
         override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -186,111 +203,11 @@ class MainActivity : AppCompatActivity() {
     
     private val gson = Gson()
 
-    // ===== ПОИСК МОДЕЛИ В ПЕСОЧНИЦЕ =====
-    private fun findModelPath(): String? {
-        val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
-        if (savedPath != null && File(savedPath).exists()) return savedPath
-
-        val modelsDir = File(filesDir, "models")
-        if (modelsDir.exists()) {
-            val ggufFiles = modelsDir.listFiles { file -> file.extension.equals("gguf", ignoreCase = true) }
-            if (ggufFiles != null && ggufFiles.isNotEmpty()) {
-                val path = ggufFiles.first().absolutePath
-                getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).edit().putString("local_model_path", path).apply()
-                return path
-            }
-        }
-
-        return null
-    }
-
-    // ===== ПОКАЗАТЬ ДИАЛОГ ЗАГРУЗКИ МОДЕЛИ ПО ССЫЛКЕ =====
-    private fun showDownloadModelDialog() {
-        val input = EditText(this).apply {
-            hint = "Вставьте ссылку для скачивания модели"
-            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
-            setTextColor(Color.BLACK)
-            setHintTextColor(Color.GRAY)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Загрузить модель ИИ")
-            .setMessage("Вставьте ссылку на скачивание GGUF-файла модели.\nМодель будет загружена в песочницу приложения.")
-            .setView(input)
-            .setPositiveButton("СКАЧАТЬ") { _, _ ->
-                val url = input.text.toString().trim()
-                if (url.isNotEmpty()) {
-                    startModelDownload(url)
-                }
-            }
-            .setNegativeButton("ОТМЕНА", null)
-            .show()
-    }
-
-    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ =====
-    private fun startModelDownload(urlString: String) {
-        val modelsDir = File(filesDir, "models")
-        if (!modelsDir.exists()) modelsDir.mkdirs()
-
-        Thread {
-            try {
-                val url = URL(urlString)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.connectTimeout = 30000
-                connection.readTimeout = 600000
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                connection.instanceFollowRedirects = true
-                connection.connect()
-
-                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                    runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: HTTP ${connection.responseCode}") }
-                    return@Thread
-                }
-
-                var fileName = "model.gguf"
-                val disposition = connection.getHeaderField("Content-Disposition")
-                if (disposition != null && disposition.contains("filename=")) {
-                    fileName = disposition.substringAfter("filename=").replace("\"", "").trim()
-                } else {
-                    val path = url.path
-                    val rawName = path.substringAfterLast("/")
-                    if (rawName.isNotEmpty()) fileName = rawName.substringBefore("?")
-                }
-
-                val modelFile = File(modelsDir, fileName)
-                appendChat("[МОЗГ] Загрузка: $fileName")
-
-                connection.inputStream.use { input ->
-                    modelFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-
-                val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
-
-                runOnUiThread {
-                    appendChat("[МОЗГ] Модель загружена: $fileName (${modelFile.length() / 1024 / 1024} МБ)")
-                    appendChat("[МОЗГ] Нажмите МОЗГ для запуска.")
-                }
-            } catch (e: Exception) {
-                runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: ${e.message}") }
-            }
-        }.start()
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             window.statusBarColor = Color.parseColor("#1A8A2E")
             setContentView(R.layout.activity_main)
-
-            // ===== СОЗДАЁМ ПЕСОЧНИЦУ =====
-            val modelsDir = File(filesDir, "models")
-            if (!modelsDir.exists()) {
-                modelsDir.mkdirs()
-                Log.d("MECH_LOG", "Песочница создана: ${modelsDir.absolutePath}")
-            }
-            Log.d("MECH_LOG", "Путь к песочнице: ${modelsDir.absolutePath}")
 
             tts = TextToSpeech(this) { status ->
                 if (status == TextToSpeech.SUCCESS) {
@@ -375,12 +292,16 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
+                // ДИНАМИЧЕСКАЯ ИЗОЛЯЦИЯ: Система не видит Сервис до клика по кнопке!
                 val serviceIntent = Intent()
                 serviceIntent.setClassName(this@MainActivity, "com.mechpravdy.neo.BrainOverlayService")
                 
                 if (checkButton.text.toString() == "ВЫКЛ МОЗГ" || checkButton.text.toString() == "ЗАГРУЗКА...") {
                     stopService(serviceIntent)
+                    
+                    // Выключаем слежку обратно:
                     brainObserver?.stopWatching()
+                    
                     checkButton.text = "МОЗГ"
                     appendChat("[МОЗГ] Локальный ИИ отключен. Модель выгружена из памяти.")
                     switchToGigaChat()
@@ -388,17 +309,23 @@ class MainActivity : AppCompatActivity() {
                     checkButton.text = "ЗАГРУЗКА..."
                     setStatus("Запуск процесса...", "yellow")
                     
-                    val modelPath = findModelPath()
-                    if (modelPath != null) {
-                        Log.d("MECH_LOG", "Найдена модель: $modelPath")
-                        serviceIntent.putExtra("MODEL_PATH", modelPath)
+                    val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
+                    if (savedPath != null && File(savedPath).exists()) {
                         startService(serviceIntent)
+                        
+                        // Запускаем слежку за файлом ТОЛЬКО СЕЙЧАС:
                         brainObserver?.startWatching()
+                        
                         checkButton.text = "ВЫКЛ МОЗГ"
-                        appendChat("[МОЗГ] Процесс запущен. Загрузка модели...")
+                        appendChat("[МОЗГ] Процесс запущен в отдельном окне. Загрузка GGUF...")
                     } else {
                         checkButton.text = "МОЗГ"
-                        showDownloadModelDialog()
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Выбор модели")
+                            .setMessage("Выберите GGUF-файл модели для локального ИИ.")
+                            .setPositiveButton("Выбрать файл") { _, _ -> modelFileLauncher.launch("*/*") }
+                            .setNegativeButton("Отмена", null)
+                            .show()
                     }
                 }
             }
@@ -430,6 +357,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+            // Слежка запускается только при клике на кнопку МОЗГ
         } catch (_: Exception) {}
     }
 
@@ -444,10 +372,14 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         brainObserver?.stopWatching()
         brainObserver = null
+        try {
+            LlamaJNI.unloadModel()
+        } catch (_: Throwable) {}
         tts?.stop()
         tts?.shutdown()
     }
 
+    // ===== НОВЫЙ МЕТОД: ОТПРАВКА В ЛОКАЛЬНУЮ МОДЕЛЬ ЧЕРЕЗ ФАЙЛ =====
     private fun sendToLocal(msg: String) {
         setStatus("Думаю...", "yellow")
         appendChat("[BATYA] $msg")
@@ -484,8 +416,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun recognizeTextFromBitmap(bitmap: Bitmap) {
         setStatus("Распознаю текст...", "yellow")
-        val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+        
+        val recognizer = TextRecognition.getClient(
+            ChineseTextRecognizerOptions.Builder().build()
+        )
+        
         val image = InputImage.fromBitmap(bitmap, 0)
+        
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
                 val recognizedText = visionText.text
@@ -509,12 +446,14 @@ class MainActivity : AppCompatActivity() {
         maxTokens = prefs.getInt("max_tokens", 1000)
         temperature = prefs.getFloat("temperature", 0.7f)
         password = prefs.getString("password", "связность") ?: "связность"
+        
         val savedGigaChatUrl = prefs.getString("giga_chat_url", null)
         if (savedGigaChatUrl != null) apiUrlGigaChat = savedGigaChatUrl
         val savedDeepSeekUrl = prefs.getString("deep_seek_url", null)
         if (savedDeepSeekUrl != null) apiUrlDeepSeek = savedDeepSeekUrl
         val savedCloudModel = prefs.getString("cloud_model", null)
         if (savedCloudModel != null) modelCloud = savedCloudModel
+        
         updateCloudClient()
     }
     
@@ -861,7 +800,7 @@ class MainActivity : AppCompatActivity() {
 ОСНОВНЫЕ КНОПКИ ВНИЗУ:
 - ОТПРАВИТЬ - отправить сообщение
 - СМОТРЕТЬ - сделать фото для анализа
-- МОЗГ - запустить/остановить локальный ИИ
+- МОЗГ - запустить/остановить локальный ИИ в изолированном процессе
 - КАПСУЛА - открыть летопись Нео (пароль)
 
 АКТИВАЦИЯ НЕО:
@@ -872,12 +811,12 @@ class MainActivity : AppCompatActivity() {
 Напишите: сделай выводы и запомни
 ИИ запишет главное в свой мозг (brain.txt).
 
-КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ):
+КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ В ИЗОЛИРОВАННОМ ПРОЦЕССЕ):
 1. Нажмите кнопку МОЗГ.
 2. Если нет разрешения - откроются настройки.
-3. Вставьте ссылку на .gguf файл модели.
-4. Модель загрузится в песочницу приложения.
-5. Нажмите МОЗГ ещё раз для запуска.
+3. Выберите GGUF-файл модели.
+4. Нажмите МОЗГ ещё раз для запуска сервиса.
+5. Модель загрузится в изолированном процессе.
 6. Отправляйте сообщения через ОТПРАВИТЬ.
 7. Ответы приходят через файловый мост.
 8. Повторное нажатие ВЫКЛ МОЗГ выгружает модель.
@@ -1197,6 +1136,7 @@ class MainActivity : AppCompatActivity() {
         val token = tokenInput.text.toString().trim()
         val msg = messageInput.text.toString().trim()
 
+        // Проверка: если сервис BrainOverlayService активен, отправляем через файловый мост
         if (checkButton.text.toString() == "ВЫКЛ МОЗГ") {
             if (msg.isEmpty()) { appendChat("[SYSTEM] Введите сообщение."); return }
             if (msg.lowercase().trim() == "help") { showHelpDialog(); messageInput.setText(""); hideKeyboard(); return }
