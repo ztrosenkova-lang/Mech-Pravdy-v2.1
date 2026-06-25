@@ -103,7 +103,6 @@ class MainActivity : AppCompatActivity() {
     private val maxContextChars = 32000
 
     private var tts: TextToSpeech? = null
-    // Шаг 1: Явный путь к FileObserver
     private var brainObserver: android.os.FileObserver? = null
 
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -229,10 +228,12 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ =====
+    // ===== СКАЧИВАНИЕ МОДЕЛИ В ПЕСОЧНИЦУ (ОРИГИНАЛЬНЫЙ МЕТОД) =====
     private fun startModelDownload(urlString: String) {
         val modelsDir = File(filesDir, "models")
         if (!modelsDir.exists()) modelsDir.mkdirs()
+
+        appendChat("[СИСТЕМА] Подключение к источнику данных...")
 
         Thread {
             try {
@@ -272,8 +273,8 @@ class MainActivity : AppCompatActivity() {
                 prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
 
                 runOnUiThread {
-                    appendChat("[МОЗГ] Модель загружена: $fileName (${modelFile.length() / 1024 / 1024} МБ)")
-                    appendChat("[МОЗГ] Нажмите МОЗГ для запуска.")
+                    appendChat("[МОЗГ] Поток успешно сохранен: $fileName (${modelFile.length() / 1024 / 1024} МБ)")
+                    appendChat("[МОЗГ] Нажмите кнопку КОМПЬЮТЕР снова.")
                 }
             } catch (e: Exception) {
                 runOnUiThread { appendChat("[МОЗГ] Ошибка загрузки: ${e.message}") }
@@ -367,12 +368,10 @@ class MainActivity : AppCompatActivity() {
             checkButton.setOnClickListener {
                 hideKeyboard()
                 
-                // КРИТИЧЕСКИЙ ШАГ: Гарантируем, что песочница физически создана в памяти
                 if (!filesDir.exists()) {
                     filesDir.mkdirs()
                 }
                 
-                // 1. Проверяем системное разрешение на отображение поверх всех окон
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this@MainActivity)) {
                     appendChat("[СИСТЕМА] Для вылета оверлея требуется разрешение.")
                     val intent = Intent(
@@ -383,19 +382,15 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
-                // 2. Переключаем режим локального ИИ
                 localAiMode = !localAiMode
                 
                 if (localAiMode) {
-                    // Кнопка включена -> Текст загорается оранжевым светом
                     checkButton.setTextColor(Color.parseColor("#FF8C00")) 
                     checkButton.text = "ВЫКЛ МОЗГ"
                     
-                    // Создаем пустые файлы-мосты в песочнице, чтобы подготовить IPC
                     File(filesDir, "brain_query.txt").createNewFile()
                     File(filesDir, "brain_response.txt").createNewFile()
                     
-                    // Запускаем пустое Activity оверлея (оно улетает на холостой ход)
                     val intent = Intent().apply {
                         setClassName(this@MainActivity, "com.mechpravdy.neo.BrainFloatingWindow")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
@@ -407,11 +402,9 @@ class MainActivity : AppCompatActivity() {
                         appendChat("[ОШИБКА] Не удалось открыть окно Мозга: ${e.message}")
                     }
                 } else {
-                    // Кнопка выключена -> Текст возвращается в фирменный зелёный цвет
                     checkButton.setTextColor(Color.parseColor("#1A8A2E")) 
                     checkButton.text = "МОЗГ"
                     
-                    // Отправляем команду мягкого закрытия активности BrainFloatingWindow
                     val intent = Intent().apply {
                         setClassName(this@MainActivity, "com.mechpravdy.neo.BrainFloatingWindow")
                         putExtra("ACTION", "CLOSE")
@@ -426,34 +419,28 @@ class MainActivity : AppCompatActivity() {
             btmPC.setOnClickListener {
                 hideKeyboard()
                 
-                // КРИТИЧЕСКИЙ ШАГ: Гарантируем наличие папки-песочницы
                 if (!filesDir.exists()) {
                     filesDir.mkdirs()
                 }
                 
-                // Шаг 1: Ищем файл в подпапке models, куда его качает загрузчик
                 val modelsDir = File(filesDir, "models")
                 if (!modelsDir.exists()) modelsDir.mkdirs()
                 val modelFile = File(modelsDir, "model.gguf")
 
-                // Создаем кастомный белый фон с зеленым контуром и круглыми краями для диалога
                 val dialogBg = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(Color.WHITE) // Белый фон окна
-                    cornerRadius = 24f * resources.displayMetrics.density // Закругленные края
-                    setStroke((1.5f * resources.displayMetrics.density).toInt(), Color.parseColor("#1A8A2E")) // Зеленый контур
+                    setColor(Color.WHITE)
+                    cornerRadius = 24f * resources.displayMetrics.density
+                    setStroke((1.5f * resources.displayMetrics.density).toInt(), Color.parseColor("#1A8A2E"))
                 }
 
                 val builder = androidx.appcompat.app.AlertDialog.Builder(this)
                 
                 if (modelFile.exists()) {
-                    // ВАРИАНТ А: Модель уже внутри песочницы
                     builder.setTitle("Локальный ИИ")
                     builder.setMessage("Модель model.gguf готова к запуску.")
                     
-                    // Кнопка запуска загорается оранжевым цветом (активное действие)
                     builder.setPositiveButton("ЗАПУСТИТЬ") { dialog, _ ->
                         if (localAiMode) {
-                            // Шаг 2: Передаем команду с правильным именем файла model.gguf
                             val cmdFile = File(filesDir, "brain_query.txt")
                             cmdFile.writeText("CMD_LOAD_NEW:model.gguf")
                             appendChat("[СИСТЕМА] Сигнал на загрузку весов отправлен в C++ движок.")
@@ -463,12 +450,9 @@ class MainActivity : AppCompatActivity() {
                         dialog.dismiss()
                     }
                     
-                    // Кнопка удаления модели
                     builder.setNegativeButton("Удалить модель") { dialog, _ ->
-                        // Сначала просим С++ движок освободить ОЗУ и закрыть доступ к файлу
                         File(filesDir, "brain_query.txt").writeText("CMD_UNLOAD")
                         
-                        // Небольшая задержка, чтобы JS-процесс успел отпустить mmap файла весов
                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                             if (modelFile.delete()) {
                                 appendChat("[СИСТЕМА] Модель успешно удалена из песочницы приложения.")
@@ -479,11 +463,9 @@ class MainActivity : AppCompatActivity() {
                         dialog.dismiss()
                     }
                 } else {
-                    // ВАРИАНТ Б: Песочница пуста, запрашиваем абсолютно любую ссылку
                     builder.setTitle("Загрузка модели")
                     builder.setMessage("Вставьте любую прямую ссылку на поток данных модели:")
                     
-                    // Бело-зеленый стиль для поля ввода
                     val input = android.widget.EditText(this).apply {
                         hint = "https://example.com"
                         setTextColor(Color.BLACK)
@@ -494,7 +476,6 @@ class MainActivity : AppCompatActivity() {
                     builder.setPositiveButton("СКАЧАТЬ") { dialog, _ ->
                         val url = input.text.toString().trim()
                         if (url.isNotEmpty()) {
-                            // Шаг 4: Вызываем оригинальный рабочий метод startModelDownload
                             startModelDownload(url)
                         } else {
                             appendChat("[СИСТЕМА] Ссылка не может быть пустой.")
@@ -508,7 +489,6 @@ class MainActivity : AppCompatActivity() {
                 val alertDialog = builder.create()
                 alertDialog.show()
                 
-                // ВАЖНО: Применяем созданный закругленный белый фон строго ПОСЛЕ вызова show()
                 alertDialog.window?.setBackgroundDrawable(dialogBg)
             }
             
@@ -525,7 +505,6 @@ class MainActivity : AppCompatActivity() {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
-            // Шаг 2: Явный префикс android.os.FileObserver
             brainObserver = object : android.os.FileObserver(brainResponseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
@@ -1309,41 +1288,35 @@ class MainActivity : AppCompatActivity() {
 
         // ===== БЛОК ЛОКАЛЬНОГО ИИ С ПОДДЕРЖКОЙ НЕО =====
         if (localAiMode) {
-            val messageText = messageInput.text.toString().trim() // Твое поле ввода текста
+            val messageText = messageInput.text.toString().trim()
             if (messageText.isEmpty()) return
 
             appendChat("[ВЫ]: $messageText")
-            messageInput.setText("") // Очищаем поле ввода
+            messageInput.setText("")
 
-            // 1. Считываем текст Капсулы (системного промпта) из внутренней памяти
-            val capsuleFile = File(filesDir, "capsule_prompt.txt") // Или имя твоего файла капсулы
+            val capsuleFile = File(filesDir, "capsule_prompt.txt")
             val capsulePrompt = if (capsuleFile.exists()) capsuleFile.readText().trim() else "You are a helpful assistant."
 
-            // 2. Учитываем режим НЕО / БАТЯ
             val finalPrompt = if (isNeoMode) {
                 "System: $capsulePrompt\n\nUser: [BATYA] $messageText\nAssistant:"
             } else {
                 "System: $capsulePrompt\n\nUser: $messageText\nAssistant:"
             }
 
-            // 3. Записываем готовую сборку в песочницу для С++ движка
             val queryFile = File(filesDir, "brain_query.txt")
             queryFile.writeText(finalPrompt)
 
-            // 4. Запускаем нативный FileObserver, который будет ждать ответ от оверлея
-            // Шаг 3: Явный префикс android.os.FileObserver
             val responseFile = File(filesDir, "brain_response.txt")
             var responseObserver: android.os.FileObserver? = null
             
             responseObserver = object : android.os.FileObserver(responseFile.path, CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
-                    // Как только С++ движок запишет ответ — выводим его в чат Меча
                     val aiResponse = try { responseFile.readText().trim() } catch (e: Exception) { "" }
                     if (aiResponse.isNotEmpty()) {
                         runOnUiThread {
                             appendChat("[МОЗГ]: $aiResponse")
                         }
-                        responseObserver?.stopWatching() // Останавливаем слежку до следующего запроса
+                        responseObserver?.stopWatching()
                     }
                 }
             }
