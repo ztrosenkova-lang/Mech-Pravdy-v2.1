@@ -126,11 +126,24 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-// Добавляем в самый конец — детальный вывод ошибок компиляции
+// Вставь этот блок в самый конец твоего app/build.gradle
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     kotlinOptions {
-        // Запрещаем компилятору прятать детали и заставляем выводить точные строки
-        verbose = true 
-        suppressWarnings = false
+        // verbose заставляет компилятор расписывать каждую строчку, где он споткнулся
+        verbose = true
+    }
+    // Принудительно дублируем лог компилятора в стандартный системный вывод терминала GitHub
+    compilerArgs.add("-Xreport-output-files")
+}
+
+// Принудительно заставляем Gradle выводить текст ошибок компиляции, даже если билд падает
+gradle.taskGraph.afterTask { Task task, TaskState state ->
+    if (state.failure && task.name.contains("compileReleaseKotlin")) {
+        def reportFile = file("${project.buildDir}/reports/problems/problems-report.html")
+        if (reportFile.exists()) {
+            println("\n=== КРИТИЧЕСКИЙ ОТЧЕТ ОБ ОШИБКЕ ИЗ PROBLEMS-REPORT.HTML ===")
+            println(reportFile.text.replaceAll("<[^>]*>", "")) // Вырезаем HTML теги и печатаем чистый текст ошибки в консоль!
+            println("============================================================\n")
+        }
     }
 }
