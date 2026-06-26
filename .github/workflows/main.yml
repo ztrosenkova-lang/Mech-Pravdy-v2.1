@@ -46,8 +46,8 @@ jobs:
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
           
-          # ХИРУРГИЧЕСКИЙ ПАТЧ: Принудительно отключаем падение на ошибке дефолтного хаба во всех @babel/traverse
-          find node_modules/ -name "hub.js" -path "*/@babel/traverse/*" -exec sed -i 's/throw new Error("Helpers are not supported by the default hub.");/return "";/g' {} +
+          # ЖЕСТКИЙ ПАТЧ: Переопределяем класс Hub во всех пакетах traverse, чтобы он поддерживал хелперы
+          find node_modules/ -name "hub.js" -path "*/@babel/traverse/*" -exec sed -i 's/throw new Error("Helpers are not supported by the default hub.");/this.file = { addHelper: (name) => name, opts: { filename: "" } }; return "";/g' {} +
 
           # Запуск сборки бандла
           yarn bundle
