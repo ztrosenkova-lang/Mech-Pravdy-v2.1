@@ -35,18 +35,19 @@ jobs:
       - name: Install React Native dependencies
         run: |
           cd react-native-brain
-          rm -rf node_modules package-lock.json
-          yarn cache clean
-          # Убираем --frozen-lockfile, чтобы Yarn сам дописал нехватающие пакеты в лок-файл, 
-          # но жестко опираясь на наши resolutions (7.25.2) из package.json!
-          yarn install
+          # Стираем любые остатки лок-файлов
+          rm -f package-lock.json yarn.lock
+          rm -rf node_modules
+          # Устанавливаем пакеты через чистый NPM. Флаг --legacy-peer-deps обойдёт любые варнинги версий
+          npm install --legacy-peer-deps
 
       - name: Build React Native Bundle
         run: |
           cd react-native-brain
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
-          yarn bundle
+          # Запуск сборки бандла напрямую через npx
+          npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output ../app/src/main/assets/index.android.bundle --assets-dest ../app/src/main/res
 
       - name: Generate keystore
         run: |
