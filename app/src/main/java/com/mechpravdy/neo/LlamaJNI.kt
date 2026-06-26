@@ -75,8 +75,8 @@ object LlamaJNI {
             // Вызываем initContext
             val result = initContext(params, null)
             
-            // Получаем указатель на контекст
-            val ctxStr = result.getString("context")
+            // Получаем указатель на контекст — кастуем к ReadableMap
+            val ctxStr = (result as? com.facebook.react.bridge.ReadableMap)?.getString("context")
             if (ctxStr.isNullOrEmpty()) {
                 Log.e(TAG, "❌ Failed to get context pointer")
                 return false
@@ -123,8 +123,8 @@ object LlamaJNI {
             // Вызываем doCompletion
             val result = doCompletion(contextPtr, params, null)
             
-            // Получаем текст ответа
-            val text = result.getString("text")
+            // Получаем текст ответа — кастуем к ReadableMap
+            val text = (result as? com.facebook.react.bridge.ReadableMap)?.getString("text")
             if (text.isNullOrEmpty()) {
                 "(пустой ответ)"
             } else {
