@@ -18,6 +18,8 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Mech-Pravdy-v2"
 include ':app'
+include ':pocketpalai_llama.rn'
+project(':pocketpalai_llama.rn').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/@pocketpalai/llama.rn/android')
 
 // Путь сборки плагина React Native
 includeBuild('react-native-brain/node_modules/@react-native/gradle-plugin')
