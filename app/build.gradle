@@ -116,6 +116,9 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.0'
     implementation 'com.google.mlkit:text-recognition-chinese:16.0.0'
 
+    // Принудительно подключаем Android-слой нашего С++ Мозга
+    implementation project(':pocketpalai_llama.rn')
+
     // React Native 0.73.0 Бинарники
     implementation "com.facebook.react:react-android:0.73.0"
     implementation "com.facebook.react:hermes-android:0.73.0"
