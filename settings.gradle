@@ -5,21 +5,38 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
     repositories {
         google()
         mavenCentral()
         maven { url 'https://jitpack.io' }
-        // Пути к нативным бинарникам внутри react-native-brain
         maven { url "$rootDir/react-native-brain/node_modules/react-native/android" }
         maven { url "$rootDir/react-native-brain/node_modules/jsc-android/dist" }
     }
 }
+
 rootProject.name = "Mech-Pravdy-v2"
 include ':app'
 include ':pocketpalai_llama.rn'
 project(':pocketpalai_llama.rn').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/@pocketpalai/llama.rn/android')
 
-// Путь сборки плагина React Native
+// Подключаем Gradle-плагин React Native в глобальную область видимости
 includeBuild('react-native-brain/node_modules/@react-native/gradle-plugin')
+
+// ЖЕЛЕЗОБЕТОННЫЙ ХАК: Принудительно внедряем плагин React Native 
+// и параметры SDK внутрь подмодуля Llama перед его оценкой!
+gradle.beforeProject { project ->
+    if (project.name == 'pocketpalai_llama.rn') {
+        // Подсовываем плагин, который он потерял
+        project.pluginManager.apply('com.facebook.react')
+        
+        // Насильно прописываем параметры компиляции Android SDK, чтобы убрать "compileSdkVersion is not specified"
+        project.ext {
+            compileSdkVersion = 34
+            targetSdkVersion = 34
+            minSdkVersion = 21
+        }
+    }
+}
