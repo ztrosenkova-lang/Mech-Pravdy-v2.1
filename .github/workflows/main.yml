@@ -46,10 +46,7 @@ jobs:
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
           
-          # ЖЕСТКИЙ ПАТЧ: Переопределяем класс Hub во всех пакетах traverse, чтобы он поддерживал хелперы
-          find node_modules/ -name "hub.js" -path "*/@babel/traverse/*" -exec sed -i 's/throw new Error("Helpers are not supported by the default hub.");/this.file = { addHelper: (name) => name, opts: { filename: "" } }; return "";/g' {} +
-
-          # Запуск сборки бандла
+          # Просто запускаем чистую сборку. resolutions в package.json сделают всю работу
           yarn bundle
 
       - name: Generate keystore
