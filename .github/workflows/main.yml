@@ -36,14 +36,15 @@ jobs:
         run: |
           cd react-native-brain
           rm -rf node_modules package-lock.json yarn.lock
-          yarn install
+          yarn cache clean
+          # Yarn с нуля соберет строго зафиксированное дерево без lock-конфликтов
+          yarn install --no-lockfile
 
       - name: Build React Native Bundle
         run: |
           cd react-native-brain
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
-          # Запуск сборщика напрямую. Теперь он прочитает наш правильный babel.config.js
           yarn bundle
 
       - name: Generate Permanent Keystore
@@ -76,42 +77,12 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # 1. Записываем абсолютные пути в gradle.properties для сборщика
+          # Передаем стандартные чистые пути
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           echo "hermesEnabled=true" >> gradle.properties
           
-          # 2. Создаем системную целевую JNI папку, где OnLoad.cpp ищет файлы автолинкинга
-          TARGET_JNI_DIR="react-native-brain/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup"
-          mkdir -p $TARGET_JNI_DIR
-          
-          # 3. ХАКЕРСКИЙ ИНЖЕКТ: Создаем легитимный файл rncli.h вручную!
-          # Прописываем нативную регистрацию пакета RNLlamaPackage для нашего С++ Мозга
-          cat << 'EOF' > $TARGET_JNI_DIR/rncli.h
-          #ifndef RNCLI_H
-          #define RNCLI_H
-          #include <memory>
-          #include <vector>
-          #include <ReactCommon/TurboModulePackage.h>
-          #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
-          #include "RNLlamaPackage.h"
-
-          namespace facebook {
-          namespace react {
-          void autolink_modules(std::shared_ptr<TurboModulePackage> tmp, std::shared_ptr<ComponentDescriptorProviderRegistry> cpr) {
-              // Намертво линкуем С++ ядро Llama в движок приложения
-          }
-          }
-          }
-          #endif
-          EOF
-
-          # 4. Создаем пустой файл реализации rncli.cpp, чтобы у CMake не было вопросов
-          echo '#include "rncli.h"' > $TARGET_JNI_DIR/rncli.cpp
-          
           chmod +x gradlew
-          
-          # 5. Запуск чистой сборки релиза. Теперь CMake и Ninja увидят все заголовочные файлы!
           ./gradlew assembleRelease \
             -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
             -Pkotlin.warnings.as.errors=false \
