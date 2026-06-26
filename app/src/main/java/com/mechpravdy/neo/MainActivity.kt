@@ -1,13 +1,11 @@
 package com.mechpravdy.neo
 
 import android.Manifest
-import android.app.AlertDialog
-import android.app.DownloadManager
+import androidx.appcompat.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.*
@@ -235,68 +233,74 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ===== СКАЧИВАНИЕ МОДЕЛИ ЧЕРЕЗ СИСТЕМНЫЙ DownloadManager =====
+    // ===== ПОТОКОВЫЙ ЗАГРУЗЧИК МОДЕЛИ В ПЕСОЧНИЦУ =====
     private fun startModelDownload(urlString: String) {
-        appendChat("[СИСТЕМА] Передача ссылки в системный загрузчик Android...")
+        val modelsDir = File(filesDir, "models")
+        if (!modelsDir.exists()) modelsDir.mkdirs()
+        
+        appendChat("[СИСТЕМА] Инициализация подключения к источнику данных...")
 
-        try {
-            val uri = Uri.parse(urlString)
-            val request = DownloadManager.Request(uri).apply {
-                setTitle("Загрузка весов ИИ")
-                setDescription("Извлечение модели прямо в песочницу")
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                // Качаем во временный системный файл, к которому у DownloadManager есть доступ
-                setDestinationInExternalFilesDir(this@MainActivity, android.os.Environment.DIRECTORY_DOWNLOADS, "temp_model.gguf")
-            }
+        // Запускаем изолированный фоновый поток, чтобы не вешать бело-зелёный интерфейс чата
+        Thread {
+            try {
+                val url = java.net.URL(urlString)
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 60000
+                connection.connect()
 
-            val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val downloadId = downloadManager.enqueue(request)
-
-            // Ловим уведомление от ОС о завершении скачивания
-            val onComplete = object : android.content.BroadcastReceiver() {
-                override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
-                    val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
-                    if (id == downloadId) {
-                        Thread {
-                            try {
-                                // Запрашиваем у системы виртуальный URI скачанного файла
-                                val downloadedUri = downloadManager.getUriForDownloadedFile(downloadId)
-                                
-                                if (downloadedUri != null) {
-                                    val modelsDir = File(filesDir, "models")
-                                    if (!modelsDir.exists()) modelsDir.mkdirs()
-                                    val destFile = File(modelsDir, "model.gguf")
-
-                                    // Открываем системный поток данных напрямую в нашу песочницу
-                                    contentResolver.openInputStream(downloadedUri).use { input ->
-                                        destFile.outputStream().use { output ->
-                                            input?.copyTo(output)
-                                        }
-                                    }
-                                    
-                                    // Просим систему удалить временный файл из общих загрузок
-                                    downloadManager.remove(downloadId)
-
-                                    // Исправленный вызов: findViewById с типом android.view.View
-                                    runOnUiThread {
-                                        appendChat("[МОЗГ] Системная загрузка завершена! Веса успешно зашли в песочницу.")
-                                        findViewById<android.view.View>(R.id.btmPC).performClick()
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                runOnUiThread { appendChat("[ОШИБКА] Не удалось забрать файл у системы: ${e.message}") }
-                            }
-                        }.start()
-                        unregisterReceiver(this)
+                if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                    runOnUiThread {
+                        appendChat("[ОШИБКА] Сервер вернул код ответа: ${connection.responseCode}")
                     }
+                    return@Thread
+                }
+
+                val fileLength = connection.contentLength
+                val inputStream = java.io.BufferedInputStream(connection.inputStream)
+                
+                // Пишем поток данных строго внутрь изолированной песочницы приложения
+                val destFile = File(modelsDir, "model.gguf")
+                val outputStream = java.io.FileOutputStream(destFile)
+
+                val data = ByteArray(8192)
+                var total: Long = 0
+                var count: Int
+                var lastReportedProgress = -5
+
+                while (inputStream.read(data).also { count = it } != -1) {
+                    total += count
+                    if (fileLength > 0) {
+                        val progress = ((total * 100) / fileLength).toInt()
+                        // Шаг логирования прогресса в чат каждые 5%
+                        if (progress >= lastReportedProgress + 5) {
+                            lastReportedProgress = progress
+                            runOnUiThread {
+                                appendChat("[ЗАГРУЗКА] Извлечение потока весов... $progress%")
+                            }
+                        }
+                    }
+                    outputStream.write(data, 0, count)
+                }
+
+                outputStream.flush()
+                outputStream.close()
+                inputStream.close()
+                connection.disconnect()
+
+                // Успешный финал загрузки - все вызовы к интерфейсу строго внутри runOnUiThread
+                runOnUiThread {
+                    appendChat("[СИСТЕМА] Поток весов успешно зашёл в песочницу! model.gguf готова.")
+                    // Теперь клик находится внутри UI-потока, и компилятор будет счастлив
+                    this@MainActivity.findViewById<android.view.View>(this@MainActivity.resources.getIdentifier("btmPC", "id", this@MainActivity.packageName))?.performClick()
+                }
+
+            } catch (e: Exception) {
+                runOnUiThread {
+                    appendChat("[ОШИБКА] Критический сбой извлечения потока: ${e.message}")
                 }
             }
-            
-            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
-
-        } catch (e: Exception) {
-            appendChat("[ОШИБКА] Критическая ошибка загрузчика: ${e.message}")
-        }
+        }.start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -450,7 +454,7 @@ class MainActivity : AppCompatActivity() {
                     setStroke((1.5f * resources.displayMetrics.density).toInt(), Color.parseColor("#1A8A2E"))
                 }
 
-                val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+                val builder = AlertDialog.Builder(this)
                 
                 if (modelFile.exists()) {
                     builder.setTitle("Локальный ИИ")
@@ -522,7 +526,6 @@ class MainActivity : AppCompatActivity() {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
-            // Шаг 1: Исправленный синтаксис с константой класса
             brainObserver = object : android.os.FileObserver(brainResponseFile.path, android.os.FileObserver.CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) {
                     val responseText = try { brainResponseFile.readText().trim() } catch (_: Exception) { "" }
@@ -1324,7 +1327,6 @@ class MainActivity : AppCompatActivity() {
             val queryFile = File(filesDir, "brain_query.txt")
             queryFile.writeText(finalPrompt)
 
-            // Шаг 2: Исправленный синтаксис с константой класса
             val responseFile = File(filesDir, "brain_response.txt")
             var responseObserver: android.os.FileObserver? = null
             
