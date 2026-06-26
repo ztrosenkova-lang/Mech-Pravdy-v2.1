@@ -43,7 +43,7 @@ const FloatingBrain = () => {
             setStatusText("НЕО: ЗАГРУЗКА В С++ ПАМЯТЬ...");
             
             // Инициализируем модель строго из песочницы
-            const modelPath = `${RNFS.DocumentDirectoryPath}/local_model.gguf`;
+            const modelPath = `${RNFS.DocumentDirectoryPath}/models/model.gguf`;
             contextRef.current = await initLlama({
               model: modelPath,
               n_ctx: 2048,
