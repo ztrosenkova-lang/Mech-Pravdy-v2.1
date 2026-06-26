@@ -37,7 +37,7 @@ jobs:
           cd react-native-brain
           rm -rf node_modules package-lock.json yarn.lock
           yarn cache clean
-          # Yarn с нуля соберет строго зафиксированное дерево без lock-конфликтов
+          # Чистая установка без лок-файлов, Yarn сам выстроит дерево по нашим resolutions
           yarn install --no-lockfile
 
       - name: Build React Native Bundle
@@ -77,12 +77,14 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # Передаем стандартные чистые пути
+          # Жестко прописываем пути к React Native для сборщика Gradle
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           echo "hermesEnabled=true" >> gradle.properties
           
           chmod +x gradlew
+          
+          # Чистый запуск компиляции нативного APK релиза
           ./gradlew assembleRelease \
             -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
             -Pkotlin.warnings.as.errors=false \
