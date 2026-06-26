@@ -1,8 +1,9 @@
 {
-  "name": "FloatingBrain",
-  "version": "1.0.0",
+  "name": "react-native-brain",
+  "version": "0.0.1",
   "private": true,
   "scripts": {
+    "android": "react-native run-android",
     "start": "react-native start",
     "bundle": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output ../app/src/main/assets/index.android.bundle --assets-dest ../app/src/main/res"
   },
@@ -13,15 +14,15 @@
     "@pocketpalai/llama.rn": "0.8.1-0"
   },
   "devDependencies": {
-    "@babel/core": "7.25.2",
-    "@babel/runtime": "7.25.2",
-    "@react-native/babel-preset": "0.73.21",
+    "@babel/core": "^7.20.0",
+    "@babel/runtime": "^7.20.0",
+    "@react-native/babel-preset": "0.73.18",
     "@react-native/metro-config": "0.73.12"
   },
   "resolutions": {
-    "@babel/core": "7.25.2",
-    "@babel/traverse": "7.25.2",
-    "@babel/helpers": "7.25.2",
-    "@babel/types": "7.25.2"
+    "@babel/core": "^7.24.0",
+    "@babel/traverse": "^7.24.0",
+    "@babel/helpers": "^7.24.0",
+    "@babel/types": "^7.24.0"
   }
 }
