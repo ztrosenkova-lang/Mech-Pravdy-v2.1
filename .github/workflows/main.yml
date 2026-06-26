@@ -69,22 +69,14 @@ jobs:
           fi
 
       - name: Build with Gradle
-        env:
-          NODE_PATH: ${{ github.workspace }}/react-native-brain/node_modules
         run: |
-          # Корректно настраиваем свойства сборки в корневом gradle.properties
+          # Указываем правильный путь к React Native
           echo "reactNativePath=react-native-brain/node_modules/react-native" >> gradle.properties
-          echo "nodeExecutablePath=$(which node)" >> gradle.properties
-          echo "hermesEnabled=true" >> gradle.properties
-
-          # Делаем скрипт сборщика исполняемым
           chmod +x gradlew
           
-          # Запуск стандартной чистой сборки релиза
+          # Запуск сборки с указанием явного пути к React Native
           ./gradlew assembleRelease \
             -PreactNativePath="react-native-brain/node_modules/react-native" \
-            -Pkotlin.warnings.as.errors=false \
-            -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
             --no-daemon \
             --info
           
