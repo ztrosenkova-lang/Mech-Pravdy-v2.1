@@ -18,7 +18,7 @@
     "@react-native/babel-preset": "^0.73.2",
     "@react-native/metro-config": "^0.73.2"
   },
-  "overrides": {
+  "resolutions": {
     "@babel/core": "^7.25.2",
     "@babel/traverse": "^7.25.2",
     "@babel/helpers": "^7.25.2",
