@@ -125,3 +125,12 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
+
+// Добавляем в самый конец — детальный вывод ошибок компиляции
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    kotlinOptions {
+        // Запрещаем компилятору прятать детали и заставляем выводить точные строки
+        verbose = true 
+        suppressWarnings = false
+    }
+}
