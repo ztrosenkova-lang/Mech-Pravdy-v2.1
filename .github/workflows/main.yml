@@ -1,7 +1,6 @@
 name: Build Mech Pravdy APK
-
 on:
-  push:
+  workflow_dispatch:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
