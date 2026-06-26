@@ -42,17 +42,10 @@ jobs:
       - name: Build React Native Bundle
         run: |
           cd react-native-brain
-          echo "module.exports = { presets: ['module:@react-native/babel-preset'] };" > babel.config.js
-          
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
-          
-          # Предварительно собираем базовый JS-бандл вручную
-          node ./node_modules/react-native/cli.js bundle --platform android --dev false --entry-file index.js --bundle-output ../app/src/main/assets/index.android.bundle --assets-dest ../app/src/main/res/ || true
-          
-          if [ ! -f ../app/src/main/assets/index.android.bundle ]; then
-            cp index.js ../app/src/main/assets/index.android.bundle
-          fi
+          # Запуск сборщика напрямую через yarn без костылей
+          yarn bundle
 
       - name: Generate keystore
         run: |
@@ -80,91 +73,20 @@ jobs:
         env:
           NODE_PATH: ${{ github.workspace }}/react-native-brain/node_modules
         run: |
+          # Корректно настраиваем свойства сборки в корневом gradle.properties
           echo "reactNativePath=react-native-brain/node_modules/react-native" >> gradle.properties
-          
-          mkdir -p bin_shims
-          
-          # Определяем точный путь до системного Node.js
-          REAL_NODE_PATH=$(which node)
-          
-          # Умный, синтаксически безопасный и независимый скрипт-перехватчик для node
-          cat << 'EOF' > bin_shims/node
-          #!/bin/bash
-          
-          # 1. ПЕРЕХВАТ CONFIG: Все логи пишем в >&2 (stderr), чтобы в stdout уходил только чистый JSON
-          if [[ "$*" == *"cli/build/bin.js config"* || "$*" == *"react-native/cli.js config"* || "$*" == *"config"* ]]; then
-            echo "[CI SHIM] Перехвачен вызов конфигурации React Native CLI! Возвращаем стабильный мок JSON." >&2
-            echo '{"root":"'$(pwd)'","reactNativePath":"'$(pwd)'/react-native-brain/node_modules/react-native","reactNativeVersion":"0.73","dependencies":{},"commands":[],"healthChecks":[],"platforms":{"android":{},"ios":{}},"project":{"android":{"sourceDir":"'$(pwd)'","appName":"app"}}}'
-            exit 0
-          fi
-          
-          # 2. ПЕРЕХВАТ BUNDLE
-          if [[ "$*" == *"cli.js bundle"* ]]; then
-            echo "[CI SHIM] Перехвачен вызов сборщика Metro!" >&2
-            
-            TARGET_DIR="../app/build/generated/assets/createBundleReleaseJsAndAssets"
-            MAP_DIR="../app/build/intermediates/sourcemaps/react/release"
-            JNI_DIR="../app/build/generated/rncli/src/main/jni"
-            
-            mkdir -p "$TARGET_DIR"
-            mkdir -p "$MAP_DIR"
-            mkdir -p "$JNI_DIR"
-            
-            cp ../app/src/main/assets/index.android.bundle "$TARGET_DIR/index.android.bundle"
-            
-            echo '{"version":3,"sources":["index.js"],"names":[],"mappings":"","file":"index.android.bundle"}' > "$MAP_DIR/index.android.bundle.packager.map"
-            echo '{"version":3,"sources":["index.js"],"names":[],"mappings":"","file":"index.android.bundle"}' > "$TARGET_DIR/index.android.bundle.map"
-            
-            echo "#Generated stub" > "$JNI_DIR/Android.mk"
-            
-            echo "#pragma once" > "$JNI_DIR/rncli.h"
-            echo "#include <memory>" >> "$JNI_DIR/rncli.h"
-            echo "#include <string>" >> "$JNI_DIR/rncli.h"
-            echo "#include <ReactCommon/TurboModule.h>" >> "$JNI_DIR/rncli.h"
-            echo "#include <ReactCommon/JavaTurboModule.h>" >> "$JNI_DIR/rncli.h"
-            echo "namespace facebook { namespace react {" >> "$JNI_DIR/rncli.h"
-            echo "class ComponentDescriptorProviderRegistry;" >> "$JNI_DIR/rncli.h"
-            echo "void rncli_registerProviders(std::shared_ptr<ComponentDescriptorProviderRegistry const> registry);" >> "$JNI_DIR/rncli.h"
-            echo "std::shared_ptr<TurboModule> rncli_ModuleProvider(const std::string &moduleName, const JavaTurboModule::InitParams &params);" >> "$JNI_DIR/rncli.h"
-            echo "}}" >> "$JNI_DIR/rncli.h"
-            
-            echo "#include \"rncli.h\"" > "$JNI_DIR/rncli.cpp"
-            echo "namespace facebook { namespace react {" >> "$JNI_DIR/rncli.cpp"
-            echo "void rncli_registerProviders(std::shared_ptr<ComponentDescriptorProviderRegistry const> registry) {}" >> "$JNI_DIR/rncli.cpp"
-            echo "std::shared_ptr<TurboModule> rncli_ModuleProvider(const std::string &moduleName, const JavaTurboModule::InitParams &params) { return nullptr; }" >> "$JNI_DIR/rncli.cpp"
-            echo "}}" >> "$JNI_DIR/rncli.cpp"
-            
-            HERMESC_BIN="../react-native-brain/node_modules/react-native/sdks/hermesc/linux64-bin/hermesc"
-            if [ ! -f "$HERMESC_BIN" ]; then
-              HERMESC_BIN="./node_modules/react-native/sdks/hermesc/linux64-bin/hermesc"
-            fi
-            
-            if head -n 1 "$TARGET_DIR/index.android.bundle" | grep -q '[a-zA-Z]'; then
-              echo "[CI SHIM] Файл является исходным JS. Запускаем компиляцию в байт-код Hermes..." >&2
-              "$HERMESC_BIN" -emit-binary -out "$TARGET_DIR/index.android.bundle" "$TARGET_DIR/index.android.bundle" -w
-            else
-              echo "[CI SHIM] Файл уже находится в формате Hermes Bytecode. Пропускаем компиляцию." >&2
-            fi
-            
-            echo "[CI SHIM] Обработка ресурсов, карт и нативных JNI-файлов завершена успешно!" >&2
-            exit 0
-          fi
-          
-          # Прозрачно передаем управление настоящему системному бинарнику Node.js
-          exec REAL_NODE_PLACEHOLDER "$@"
-          EOF
-          
-          # Напрямую вшиваем абсолютный путь до бинарника Node.js
-          sed -i "s|REAL_NODE_PLACEHOLDER|$REAL_NODE_PATH|g" bin_shims/node
-          
-          chmod +x bin_shims/node
-          export PATH="$(pwd)/bin_shims:$PATH"
-          
+          echo "nodeExecutablePath=$(which node)" >> gradle.properties
+          echo "hermesEnabled=true" >> gradle.properties
+
+          # Делаем скрипт сборщика исполняемым
           chmod +x gradlew
+          
+          # Запуск стандартной чистой сборки релиза
           ./gradlew assembleRelease \
             -PreactNativePath="react-native-brain/node_modules/react-native" \
             -Pkotlin.warnings.as.errors=false \
             -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
+            --no-daemon \
             --info
           
       - name: Upload APK
