@@ -13,10 +13,15 @@
     "react-native-fs": "^2.20.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0",
-    "@babel/runtime": "^7.20.0",
+    "@babel/core": "^7.24.0",
+    "@babel/runtime": "^7.24.0",
     "@babel/plugin-transform-flow-strip-types": "^7.20.0",
     "@react-native/babel-preset": "^0.73.0",
-    "@react-native/metro-config": "0.73.0"
+    "@react-native/metro-config": "0.73.0",
+    "@babel/traverse": "^7.24.0"
+  },
+  "resolutions": {
+    "@babel/core": "^7.24.0",
+    "@babel/traverse": "^7.24.0"
   }
 }
