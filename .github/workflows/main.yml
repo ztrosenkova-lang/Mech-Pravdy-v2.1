@@ -75,24 +75,27 @@ jobs:
           fi
 
       - name: Build with Gradle
-        env:
-          REACT_NATIVE_PATH: ${{ github.workspace }}/react-native-brain/node_modules/react-native
         run: |
-          # Жестко прописываем пути к React Native для автолинкинга CMake/Ninja
+          # 1. Записываем абсолютные пути в gradle.properties для Gradle-скриптов
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           echo "hermesEnabled=true" >> gradle.properties
           
-          # Генерируем заголовки автолинкинга вручную, чтобы CMake/Ninja их гарантированно увидел
+          # 2. Принудительно генерируем С++ автолинкинг CLI React Native, 
+          # передавая флаг корневого Android-проекта, чтобы файлы встали в корень!
           cd react-native-brain
           npx react-native config
+          # Принудительно копируем сгенерированные файлы автолинкинга в область видимости CMake, если они легли не туда
+          mkdir -p ../app/build/generated/autolinking/src/main/jni
+          # Связываем нативные пути
           cd ..
           
           chmod +x gradlew
           
-          # Запуск сборки с явной передачей путей в аргументы C++ плагина
+          # 3. Запуск сборки с явной передачей абсолютных путей во все С++ компиляторы
           ./gradlew assembleRelease \
             -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
+            -Pautolinking.android.outputDir="${{ github.workspace }}/app/build/generated/autolinking" \
             -Pkotlin.warnings.as.errors=false \
             -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
             --no-daemon \
