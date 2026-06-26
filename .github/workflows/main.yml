@@ -44,7 +44,11 @@ jobs:
           cd react-native-brain
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
-          # Запуск сборщика напрямую через yarn без костылей
+          
+          # Принудительно вычищаем ломаные версии Babel и ставим свежие рабочие
+          yarn add --dev @babel/core@^7.24.0 @babel/traverse@^7.24.0 @babel/runtime@^7.24.0
+          
+          # Запуск сборки бандла
           yarn bundle
 
       - name: Generate keystore
