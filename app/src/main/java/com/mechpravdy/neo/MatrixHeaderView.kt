@@ -294,6 +294,8 @@ class MatrixHeaderView @JvmOverloads constructor(
 
         murzikBitmap?.let { bitmap ->
             canvas.save()
+            // Принудительно говорим системе рендерить этот кусок программно, чтобы не падал компилятор релиза
+            setLayerType(LAYER_TYPE_SOFTWARE, null)
             val clipPath = Path().apply { addCircle(murzikCenterX, murzikCenterY, murzikRadius, Path.Direction.CW) }
             canvas.clipPath(clipPath)
             val srcRect = Rect(0, 0, bitmap.width, bitmap.height)
