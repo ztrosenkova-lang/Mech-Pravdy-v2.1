@@ -76,26 +76,35 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # 1. Записываем абсолютные пути в gradle.properties для Gradle-скриптов
+          # 1. Записываем абсолютные пути в gradle.properties для сборщика
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           echo "hermesEnabled=true" >> gradle.properties
           
-          # 2. Принудительно генерируем С++ автолинкинг CLI React Native, 
-          # передавая флаг корневого Android-проекта, чтобы файлы встали в корень!
+          # 2. Переходим в JS-папку и принудительно заставляем CLI сгенерировать файлы автолинкинга
           cd react-native-brain
           npx react-native config
-          # Принудительно копируем сгенерированные файлы автолинкинга в область видимости CMake, если они легли не туда
-          mkdir -p ../app/build/generated/autolinking/src/main/jni
-          # Связываем нативные пути
           cd ..
+          
+          # 3. ХИРУРГИЧЕСКАЯ СКЛЕЙКА ПУТЕЙ C++ CONTEXT:
+          # Выясняем, куда ложится автолинкинг по умолчанию, и дублируем его в системную C++ папку ReactAndroid,
+          # чтобы OnLoad.cpp гарантированно увидел заголовочный файл rncli.h!
+          GENERATED_JNI_DIR="react-native-brain/node_modules/react-native/ReactAndroid/build/generated/source/autolinking/src/main/jni"
+          TARGET_JNI_DIR="react-native-brain/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup"
+          
+          # Если CLI создал файлы в стандартной Gradle-папке автолинкинга, копируем их напрямую в рабочую зону CMake
+          mkdir -p $TARGET_JNI_DIR
+          cp -rf $GENERATED_JNI_DIR/* $TARGET_JNI_DIR/ 2>/dev/null || true
+          
+          # Дополнительно делаем копию в нативную папку сборки самого приложения
+          mkdir -p app/build/generated/autolinking/src/main/jni
+          cp -rf $GENERATED_JNI_DIR/* app/build/generated/autolinking/src/main/jni/ 2>/dev/null || true
           
           chmod +x gradlew
           
-          # 3. Запуск сборки с явной передачей абсолютных путей во все С++ компиляторы
+          # 4. Запуск сборки релиза с прямой передачей путей
           ./gradlew assembleRelease \
             -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
-            -Pautolinking.android.outputDir="${{ github.workspace }}/app/build/generated/autolinking" \
             -Pkotlin.warnings.as.errors=false \
             -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
             --no-daemon \
