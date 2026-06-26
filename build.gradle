@@ -10,6 +10,9 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.7.3'
         classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21'
+        
+        // Добавляем класс-путь к плагину React Native, чтобы подмодуль Llama его нашел!
+        classpath("com.facebook.react:react-native-gradle-plugin")
     }
     
     configurations.all {
@@ -20,4 +23,25 @@ buildscript {
         }
     }
 }
-// ... (остальной блок allprojects и clean оставляем без изменений)
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    
+    // Автоматически прописываем compileSdkVersion для подмодуля Llama, 
+    // чтобы исправить ошибку "compileSdkVersion is not specified"
+    afterEvaluate { project ->
+        if (project.name == 'pocketpalai_llama.rn') {
+            project.android {
+                compileSdkVersion 34
+                buildToolsVersion "34.0.0"
+                defaultConfig {
+                    minSdkVersion 21
+                    targetSdkVersion 34
+                }
+            }
+        }
+    }
+}
