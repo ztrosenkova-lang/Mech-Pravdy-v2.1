@@ -32,6 +32,18 @@ class MatrixChatBackground @JvmOverloads constructor(
     private var nextPoolSlot = 0
     private var screenH = 0f
     private var frame = 0
+    private val animationHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val animationRunnable = object : Runnable {
+        override fun run() {
+            invalidate()
+            animationHandler.postDelayed(this, 100)
+        }
+    }
+
+    // Запускаем цикл перерисовки при старте
+    init {
+        animationHandler.post(animationRunnable)
+    }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -85,6 +97,5 @@ class MatrixChatBackground @JvmOverloads constructor(
                 canvas.drawText(line[c].toString(), c * fontSize, y, paint)
             }
         }
-        postInvalidateDelayed(100)
     }
 }
