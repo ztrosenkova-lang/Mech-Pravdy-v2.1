@@ -18,11 +18,5 @@
     "@babel/runtime": "^7.20.0",
     "@react-native/babel-preset": "0.73.18",
     "@react-native/metro-config": "0.73.12"
-  },
-  "resolutions": {
-    "@babel/core": "^7.24.0",
-    "@babel/traverse": "^7.24.0",
-    "@babel/helpers": "^7.24.0",
-    "@babel/types": "^7.24.0"
   }
 }
