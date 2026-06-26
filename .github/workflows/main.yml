@@ -75,15 +75,22 @@ jobs:
           fi
 
       - name: Build with Gradle
+        env:
+          REACT_NATIVE_PATH: ${{ github.workspace }}/react-native-brain/node_modules/react-native
         run: |
           # Жестко прописываем пути к React Native для автолинкинга CMake/Ninja
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           echo "hermesEnabled=true" >> gradle.properties
           
+          # Генерируем заголовки автолинкинга вручную, чтобы CMake/Ninja их гарантированно увидел
+          cd react-native-brain
+          npx react-native config
+          cd ..
+          
           chmod +x gradlew
           
-          # Запуск сборки релиза с прямой передачей путей в качестве аргументов
+          # Запуск сборки с явной передачей путей в аргументы C++ плагина
           ./gradlew assembleRelease \
             -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
             -Pkotlin.warnings.as.errors=false \
