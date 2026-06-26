@@ -1,18 +1,14 @@
 name: Build Mech Pravdy APK
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch: # Запуск строго вручную по кнопке, чтобы сборки не сталкивались в очереди
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -20,37 +16,27 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Setup Node.js
+      - name: Set up Node.js 18
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-
-      - name: Install Yarn globally
-        run: npm install -g yarn
+          cache: 'yarn'
+          cache-dependency-path: react-native-brain/package.json
 
       - name: Install React Native dependencies
         run: |
           cd react-native-brain
           rm -rf node_modules package-lock.json yarn.lock
           yarn cache clean
-          # Чистая установка без лок-файлов, Yarn сам выстроит дерево по нашим resolutions
+          # Законная установка: Yarn сам выстроит чистое дерево без lock-конфликтов
           yarn install --no-lockfile
-
-      - name: Build React Native Bundle
-        run: |
-          cd react-native-brain
-          mkdir -p ../app/src/main/assets
-          mkdir -p ../app/src/main/res/drawable-mdpi
-          yarn bundle
 
       - name: Generate Permanent Keystore
         run: |
           mkdir -p app
-          # Генерируем полноценный рабочий JKS-ключ со строгими параметрами для Android
+          # Автоматически создаем криптографически правильный постоянный ключ подписи в папке app
           keytool -genkeypair -v \
             -keystore app/mech-pravdy.jks \
             -alias mechpravdy \
@@ -61,39 +47,35 @@ jobs:
             -keypass mechpravdy2024 \
             -dname "CN=MechPravdy, OU=Dev, O=Neo, L=Smolensk, S=Smolensk, C=RU"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.11.1
-
-      - name: Patch React Native Gradle Plugin (Fix -Werror)
+      - name: Build React Native Bundle
         run: |
-          TARGET_FILE="react-native-brain/node_modules/@react-native/gradle-plugin/build.gradle.kts"
-          if [ -f "$TARGET_FILE" ]; then
-            echo "Файл плагина найден. Отключаем allWarningsAsErrors..."
-            sed -i 's/allWarningsAsErrors.set(true)/allWarningsAsErrors.set(false)/g' "$TARGET_FILE"
-            sed -i 's/allWarningsAsErrors = true/allWarningsAsErrors = false/g' "$TARGET_FILE"
-          fi
+          cd react-native-brain
+          # Создаем папки ресурсов в нативном слое app
+          mkdir -p ../app/src/main/assets
+          mkdir -p ../app/src/main/res/drawable-mdpi
+          # Запуск сборщика Metro. Он прочитает наш новый metro.config.js и пролетит билд без ошибок
+          yarn bundle
 
       - name: Build with Gradle
         run: |
-          # Жестко прописываем пути к React Native для сборщика Gradle
+          # Передаем абсолютные пути к React Native напрямую в системные свойства Gradle
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           echo "hermesEnabled=true" >> gradle.properties
           
           chmod +x gradlew
           
-          # Чистый запуск компиляции нативного APK релиза
+          # Запускаем чистую релизную компиляцию нативного APK со всеми С++ модулями
           ./gradlew assembleRelease \
             -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
             -Pkotlin.warnings.as.errors=false \
             -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
             --no-daemon \
             --info
-          
-      - name: Upload APK
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: MechPravdy-APK
           path: app/build/outputs/apk/release/*.apk
+          retention-days: 7
