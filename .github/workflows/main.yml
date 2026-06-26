@@ -37,7 +37,8 @@ jobs:
           cd react-native-brain
           rm -rf node_modules package-lock.json yarn.lock
           yarn cache clean
-          yarn install
+          # Ставим зависимости без блокировки старого lock-файла
+          yarn install --no-lockfile
 
       - name: Build React Native Bundle
         run: |
@@ -45,10 +46,7 @@ jobs:
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
           
-          # Принудительно вычищаем ломаные версии Babel и ставим свежие рабочие
-          yarn add --dev @babel/core@^7.24.0 @babel/traverse@^7.24.0 @babel/runtime@^7.24.0
-          
-          # Запуск сборки бандла
+          # Запуск сборки бандла напрямую без промежуточных костылей
           yarn bundle
 
       - name: Generate keystore
