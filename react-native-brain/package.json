@@ -18,9 +18,5 @@
     "@babel/plugin-transform-flow-strip-types": "^7.20.0",
     "@react-native/babel-preset": "^0.73.0",
     "@react-native/metro-config": "0.73.0"
-  },
-  "resolutions": {
-    "@babel/traverse": "7.20.12",
-    "@babel/core": "7.20.12"
   }
 }
