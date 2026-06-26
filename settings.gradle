@@ -22,21 +22,5 @@ include ':app'
 include ':pocketpalai_llama.rn'
 project(':pocketpalai_llama.rn').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/@pocketpalai/llama.rn/android')
 
-// Подключаем Gradle-плагин React Native в глобальную область видимости
+// Путь сборки плагина React Native
 includeBuild('react-native-brain/node_modules/@react-native/gradle-plugin')
-
-// ЖЕЛЕЗОБЕТОННЫЙ ХАК: Принудительно внедряем плагин React Native 
-// и параметры SDK внутрь подмодуля Llama перед его оценкой!
-gradle.beforeProject { project ->
-    if (project.name == 'pocketpalai_llama.rn') {
-        // Подсовываем плагин, который он потерял
-        project.pluginManager.apply('com.facebook.react')
-        
-        // Насильно прописываем параметры компиляции Android SDK, чтобы убрать "compileSdkVersion is not specified"
-        project.ext {
-            compileSdkVersion = 34
-            targetSdkVersion = 34
-            minSdkVersion = 21
-        }
-    }
-}
