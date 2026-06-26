@@ -345,17 +345,9 @@ class MainActivity : AppCompatActivity() {
 
             matrixHeader.onNeoClick = { switchToGigaChat() }
             matrixHeader.onLocalClick = { switchToDeepSeek() }
+            // Замена: вместо вызова старых приложений симулируем клик по кнопке-компьютеру btmPC
             matrixHeader.onLocalRowClick = {
-                val options = arrayOf("PocketPal AI", "AboDeLLM")
-                AlertDialog.Builder(this)
-                    .setTitle("Запустить локальный ИИ")
-                    .setItems(options) { _, which ->
-                        when (which) {
-                            0 -> launchExternalApp("com.pocketpalai", "com.pocketpal.MainActivity")
-                            1 -> launchExternalApp("com.tricenc.abodellm", "com.tricenc.abodellm.MainActivity")
-                        }
-                    }
-                    .show()
+                this@MainActivity.findViewById<android.view.View>(resources.getIdentifier("btmPC", "id", packageName))?.performClick()
             }
             matrixHeader.onHelpClick = { showHelpDialog() }
             matrixHeader.onClearClick = { clearChat() }
