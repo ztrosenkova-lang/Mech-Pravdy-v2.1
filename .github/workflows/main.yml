@@ -35,18 +35,16 @@ jobs:
       - name: Install React Native dependencies
         run: |
           cd react-native-brain
-          rm -rf node_modules package-lock.json yarn.lock
+          rm -rf node_modules package-lock.json
           yarn cache clean
-          # Ставим зависимости без блокировки старого lock-файла
-          yarn install --no-lockfile
+          # Флаг --frozen-lockfile принудительно заставит Yarn собирать проект строго по нашему yarn.lock
+          yarn install --frozen-lockfile
 
       - name: Build React Native Bundle
         run: |
           cd react-native-brain
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
-          
-          # Просто запускаем чистую сборку. resolutions в package.json сделают всю работу
           yarn bundle
 
       - name: Generate keystore
