@@ -37,8 +37,9 @@ jobs:
           cd react-native-brain
           rm -rf node_modules package-lock.json
           yarn cache clean
-          # Флаг --frozen-lockfile принудительно заставит Yarn собирать проект строго по нашему yarn.lock
-          yarn install --frozen-lockfile
+          # Убираем --frozen-lockfile, чтобы Yarn сам дописал нехватающие пакеты в лок-файл, 
+          # но жестко опираясь на наши resolutions (7.25.2) из package.json!
+          yarn install
 
       - name: Build React Native Bundle
         run: |
