@@ -28,10 +28,10 @@ android {
 
     signingConfigs {
         release {
-            storeFile file('mechpravdy.keystore')
-            storePassword 'mechpravdy2024'
-            keyAlias 'mechpravdy'
-            keyPassword 'mechpravdy2024'
+            storeFile file("mech-pravdy.jks")
+            storePassword "mechpravdy2024"
+            keyAlias "mechpravdy"
+            keyPassword "mechpravdy2024"
         }
     }
 
@@ -67,9 +67,11 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
-            signingConfig signingConfigs.release
+            minifyEnabled true // Включает ProGuard/R8 для сжатия кода
+            // Привязываем правила защиты кода
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Принудительно подписываем релиз нашим сгенерированным JKS ключом
+            signingConfig signingConfigs.release
         }
     }
 
