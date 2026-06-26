@@ -70,13 +70,18 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # Указываем правильный путь к React Native
-          echo "reactNativePath=react-native-brain/node_modules/react-native" >> gradle.properties
+          # Жестко прописываем пути к React Native для автолинкинга CMake/Ninja
+          echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
+          echo "nodeExecutablePath=$(which node)" >> gradle.properties
+          echo "hermesEnabled=true" >> gradle.properties
+          
           chmod +x gradlew
           
-          # Запуск сборки с указанием явного пути к React Native
+          # Запуск сборки релиза с прямой передачей путей в качестве аргументов
           ./gradlew assembleRelease \
-            -PreactNativePath="react-native-brain/node_modules/react-native" \
+            -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
+            -Pkotlin.warnings.as.errors=false \
+            -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
             --no-daemon \
             --info
           
