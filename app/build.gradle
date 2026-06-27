@@ -4,6 +4,15 @@ plugins {
     id 'com.facebook.react'
 }
 
+// Маскируем проект под требования Llama, чтобы вызов .version вернул валидный текст!
+project.rootProject.afterEvaluate {
+    project.rootProject.subprojects { sub ->
+        if (sub.name == 'app') {
+            sub.ext.set("version", "0.73.0")
+        }
+    }
+}
+
 react {
     root = file("../react-native-brain")
     reactNativeDir = file("../react-native-brain/node_modules/react-native")
