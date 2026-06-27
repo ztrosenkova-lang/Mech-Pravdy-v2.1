@@ -58,60 +58,10 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПИСЬ КОНФИГА LLAMA С ПОДДЕРЖКОЙ ПЛАГИНА FACEBOOK:
-          # Мы полностью заменяем файл библиотеки его чистым, рабочим аналогом, убирая проверку через .find()
-          cat << 'EOF' > react-native-brain/node_modules/@pocketpalai/llama.rn/android/build.gradle
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath "com.android.tools.build:gradle:8.1.1"
-                  classpath "com.facebook.react:react-native-gradle-plugin:0.73.0"
-              }
-          }
-
-          apply plugin: "com.android.library"
-          apply plugin: "com.facebook.react"
-
-          def chunks = ['0', '73', '0']
-          def reactNativeMinSdk = 21
-
-          android {
-              compileSdkVersion 34
-              namespace "com.rnllama"
-
-              defaultConfig {
-                  minSdkVersion reactNativeMinSdk
-                  targetSdkVersion 34
-              }
-
-              sourceSets {
-                  main {
-                      java.srcDirs = ["src/main/java"]
-                  }
-              }
-
-              buildFeatures {
-                  buildConfig true
-              }
-          }
-
-          repositories {
-              mavenCentral()
-              google()
-          }
-
-          dependencies {
-              // Полный стек официальных нативных бинарников для React Native 0.73.0
-              implementation "com.facebook.react:react-android:0.73.0"
-              implementation "com.facebook.react:hermes-android:0.73.0"
-              implementation "com.facebook.fbjni:fbjni:0.3.0"
-              implementation "com.facebook.soloader:soloader:0.10.5"
-              implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0"
-          }
-          EOF
+          # БРОНЕБОЙНАЯ ЗАМЕНА СТРОКИ С ПРАВИЛЬНЫМ ЭКРАНИРОВАНИЕМ СЛЭШЕЙ:
+          # Мы больше не стираем файл целиком. Мы точечно меняем падающий split() на готовый массив версий,
+          # сохраняя всю внутреннюю логику кодогенерации (Codegen) самой библиотеки Llama!
+          sed -i 's/def chunks = reactNativeVersion.split("\\\\.")/def chunks = ["0", "73", "0"]/g' react-native-brain/node_modules/@pocketpalai/llama.rn/android/build.gradle
 
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
