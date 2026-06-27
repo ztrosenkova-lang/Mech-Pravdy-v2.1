@@ -18,20 +18,8 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Mech-Pravdy-v2"
-
-// ЖЕЛЕЗОБЕТОННЫЙ ИНЖЕКТ ВЕРСИИ ДЛЯ LLAMA:
-// Мы перехватываем инициализацию проекта и принудительно прописываем версию 0.73.0 в каждый подпроект, 
-// чтобы вызов .version внутри llama/build.gradle гарантированно вернул строку, а не null!
-gradle.beforeProject { proj ->
-    proj.ext.set("reactNativeVersion", "0.73.0")
-    proj.version = "0.73.0"
-}
-
 include ':app'
 include ':pocketpalai_llama.rn'
 project(':pocketpalai_llama.rn').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/@pocketpalai/llama.rn/android')
 
 includeBuild('react-native-brain/node_modules/@react-native/gradle-plugin')
-
-include ':react-native'
-project(':react-native').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/react-native/android')
