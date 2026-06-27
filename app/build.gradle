@@ -1,6 +1,6 @@
 plugins {
-    id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
+    id 'com.android.application' version '8.1.1'
+    id 'org.jetbrains.kotlin.android' version '1.8.22'
     id 'com.facebook.react'
 }
 
@@ -10,14 +10,6 @@ react {
     codegenDir = file("../react-native-brain/node_modules/@react-native/codegen")
     cliFile = file("../react-native-brain/node_modules/react-native/cli.js")
 }
-
-// Принудительное переопределение внутренних путей сборщика тасок
-project.ext.react = [
-    root: "../../", 
-    bundleAssetName: "index.android.bundle",
-    entryFile: "index.js",
-    cliPath: "react-native-brain/node_modules/react-native/cli.js"
-]
 
 android {
     namespace 'com.mechpravdy.neo'
@@ -101,6 +93,8 @@ android {
         exclude "META-INF/NOTICE"
         exclude "META-INF/NOTICE.txt"
     }
+
+    configurationCache { active = false }
 }
 
 dependencies {
