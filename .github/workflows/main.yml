@@ -58,7 +58,7 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПИСЬ КОНФИГА LLAMA С КОРРЕКТНОЙ ВЕРСИЕЙ И ЗАВИСИМОСТЯМИ:
+          # ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПИСЬ КОНФИГА LLAMA С ПОДДЕРЖКОЙ ПЛАГИНА FACEBOOK:
           # Мы полностью заменяем файл библиотеки его чистым, рабочим аналогом, убирая проверку через .find()
           cat << 'EOF' > react-native-brain/node_modules/@pocketpalai/llama.rn/android/build.gradle
           buildscript {
@@ -68,10 +68,12 @@ jobs:
               }
               dependencies {
                   classpath "com.android.tools.build:gradle:8.1.1"
+                  classpath "com.facebook.react:react-native-gradle-plugin:0.73.0"
               }
           }
 
           apply plugin: "com.android.library"
+          apply plugin: "com.facebook.react"
 
           def chunks = ['0', '73', '0']
           def reactNativeMinSdk = 21
@@ -102,8 +104,12 @@ jobs:
           }
 
           dependencies {
-              // Жестко скармливаем нативные классы и аннотации React Native 0.73.0, чтобы закрыть 6 ошибок Java!
+              // Полный стек официальных нативных бинарников для React Native 0.73.0
               implementation "com.facebook.react:react-android:0.73.0"
+              implementation "com.facebook.react:hermes-android:0.73.0"
+              implementation "com.facebook.fbjni:fbjni:0.3.0"
+              implementation "com.facebook.soloader:soloader:0.10.5"
+              implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0"
           }
           EOF
 
