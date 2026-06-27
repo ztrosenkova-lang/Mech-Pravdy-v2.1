@@ -18,8 +18,12 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Mech-Pravdy-v2"
-include ':app'
-include ':pocketpalai_llama.rn'
-project(':pocketpalai_llama.rn').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/@pocketpalai/llama.rn/android')
 
-includeBuild('react-native-brain/node_modules/@react-native/gradle-plugin')
+// Включаем твой нативный Android-чат
+include ':app'
+
+// ОФИЦИАЛЬНЫЙ СЦЕНАРИЙ АВТОЛИНКИНГА FACEBOOK ДЛЯ СТРУКТУРЫ С ПОДПАПКОЙ:
+// Этот системный скрипт САМ найдет, правильно подключит в граф Gradle и инициализирует 
+// версии для подпроектов :react-native и :pocketpalai_llama.rn строго по закону!
+apply from: new File(settingsDir, "react-native-brain/node_modules/@react-native/gradle-plugin/autolinking.gradle")
+autolinkLibrariesWithGradle()
