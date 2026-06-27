@@ -23,3 +23,7 @@ include ':pocketpalai_llama.rn'
 project(':pocketpalai_llama.rn').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/@pocketpalai/llama.rn/android')
 
 includeBuild('react-native-brain/node_modules/@react-native/gradle-plugin')
+
+// ЖЕСТКАЯ РЕГИСТРАЦИЯ: Добавляем модуль react-native в subprojects, чтобы метод .find() внутри Llama не возвращал null!
+include ':react-native'
+project(':react-native').projectDir = new File(rootProject.projectDir, 'react-native-brain/node_modules/react-native/android')
