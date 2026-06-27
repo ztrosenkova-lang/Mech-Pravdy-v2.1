@@ -1,26 +1,38 @@
 buildscript {
     // Явно указываем Gradle-системе, где физически находится ядро React Android
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 23
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+        ndkVersion = "25.1.8937393"
+        kotlinVersion = "2.0.21"
+        
+        // Путь к React Native
+        reactNativeDir = new File(rootDir, "react-native-brain/node_modules/react-native")
+    }
+    
+    // Устанавливаем системное свойство для React Native
     System.setProperty("REACT_ANDROID_DIR", "${projectDir}/react-native-brain/node_modules/react-native/ReactAndroid")
     
     repositories {
         google()
         mavenCentral()
         maven { url 'https://jitpack.io' }
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.1.1'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21'
-        
-        // Добавляем класс-путь к плагину React Native, чтобы подмодуль Llama его нашел!
-        classpath("com.facebook.react:react-native-gradle-plugin")
+        // Добавляем локальный репозиторий React Native
+        maven { url "${projectDir}/react-native-brain/node_modules/react-native/android" }
+        maven { url "${projectDir}/react-native-brain/node_modules/jsc-android/dist" }
     }
     
-    configurations.all {
-        resolutionStrategy.eachDependency { DependencyResolveDetails details ->
-            if (details.requested.group == 'org.jetbrains.kotlin') {
-                details.useVersion '2.0.21'
-            }
-        }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}"
+        
+        // Добавляем плагин React Native с явной версией
+        // Важно: версия должна соответствовать вашей React Native
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        // ИЛИ если не находит автоматически, укажите версию явно:
+        // classpath("com.facebook.react:react-native-gradle-plugin:0.73.0")
     }
 }
 
@@ -28,18 +40,23 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
+        maven { url "${rootDir}/react-native-brain/node_modules/react-native/android" }
+        maven { url "${rootDir}/react-native-brain/node_modules/jsc-android/dist" }
     }
-    
-    // Автоматически прописываем compileSdkVersion для подмодуля Llama, 
-    // чтобы исправить ошибку "compileSdkVersion is not specified"
+}
+
+// Настройка для всех подпроектов
+subprojects {
     afterEvaluate { project ->
-        if (project.name == 'pocketpalai_llama.rn') {
+        if (project.hasProperty("android")) {
             project.android {
-                compileSdkVersion 34
-                buildToolsVersion "34.0.0"
+                compileSdkVersion rootProject.ext.compileSdkVersion
+                buildToolsVersion rootProject.ext.buildToolsVersion
+                
                 defaultConfig {
-                    minSdkVersion 21
-                    targetSdkVersion 34
+                    minSdkVersion rootProject.ext.minSdkVersion
+                    targetSdkVersion rootProject.ext.targetSdkVersion
                 }
             }
         }
