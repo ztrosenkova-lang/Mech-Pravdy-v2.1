@@ -58,16 +58,17 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # Передаем абсолютные пути к React Native напрямую в системные свойства Gradle
+          # Записываем абсолютные пути во все возможные системные переменные Gradle
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
+          echo "reactNativeVersion=0.73.0" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
-          echo "hermesEnabled=true" >> gradle.properties
           
           chmod +x gradlew
           
-          # Запускаем чистую релизную компиляцию нативного APK со всеми С++ модулями
+          # Запуск сборки с дублированием флагов путей в разном регистре для плагина Llama
           ./gradlew assembleRelease \
             -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
+            -PreactNativeVersion="0.73.0" \
             -Pkotlin.warnings.as.errors=false \
             -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
             --no-daemon \
