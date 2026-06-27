@@ -8,7 +8,7 @@ buildscript {
         maven { url 'https://jitpack.io' }
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.7.3'
+        classpath 'com.android.tools.build:gradle:8.1.1'
         classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21'
         
         // Добавляем класс-путь к плагину React Native, чтобы подмодуль Llama его нашел!
