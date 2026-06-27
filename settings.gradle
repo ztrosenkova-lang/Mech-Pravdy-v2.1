@@ -18,18 +18,45 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Mech-Pravdy-v2"
-
-// Включаем твой нативный Android-чат
 include ':app'
 
-// ОФИЦИАЛЬНАЯ ИНСТРУКЦИЯ FACEBOOK ДЛЯ НАДСТРОЕК НАД ИСХОДНЫМ КОДОМ:
-// Мы подгружаем родной скрипт автолинкинга и явно указываем ему, 
-// что наш package.json и node_modules лежат внутри папки 'react-native-brain'!
-apply from: new File(settingsDir, "react-native-brain/node_modules/@react-native/gradle-plugin/autolinking.gradle")
+// Проверяем наличие React Native
+def reactNativeDir = new File(settingsDir, "react-native-brain/node_modules/react-native")
+if (!reactNativeDir.exists()) {
+    throw new GradleException("""
+        ❌ React Native not found at: ${reactNativeDir.absolutePath}
+        Please run: cd react-native-brain && npm install
+    """)
+}
 
-// Запускаем автолинкинг, передавая ему точный адрес JS-мозга.
-// Этот метод САМ создаст проект :react-native, САМ пропишет ему версию 0.73.0,
-// и движок Llama на строке 41 нативно прочитает все данные без единой ошибки!
-autolinkLibrariesWithGradle({
-    root = file("react-native-brain")
-})
+// Новый способ автолинкинга (React Native 0.71+)
+def autolinkingFile = new File(settingsDir, "react-native-brain/node_modules/@react-native/gradle-plugin/autolinking.gradle")
+if (autolinkingFile.exists()) {
+    apply from: autolinkingFile
+    autolinkLibrariesWithGradle({
+        root = file("react-native-brain")
+    })
+    println "✅ React Native autolinking configured successfully"
+} else {
+    // Fallback для старых версий
+    println "⚠️ autolinking.gradle not found, using fallback configuration"
+    
+    // Ручное подключение react-native
+    include ':react-native'
+    project(':react-native').projectDir = new File(settingsDir, "react-native-brain/node_modules/react-native")
+    
+    // Подключение других модулей, если есть
+    def modulesDir = new File(settingsDir, "react-native-brain/node_modules")
+    if (modulesDir.exists()) {
+        modulesDir.listFiles().each { module ->
+            def androidDir = new File(module, "android")
+            if (androidDir.exists()) {
+                def moduleName = module.name
+                if (moduleName != 'react-native') {
+                    include ":${moduleName}"
+                    project(":${moduleName}").projectDir = androidDir
+                }
+            }
+        }
+    }
+}
