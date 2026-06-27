@@ -8,13 +8,15 @@ react {
     root = file("../react-native-brain")
     reactNativeDir = file("../react-native-brain/node_modules/react-native")
     codegenDir = file("../react-native-brain/node_modules/@react-native/codegen")
-    cliPath = "../react-native-brain/node_modules/react-native/cli.js"
 }
 
 android {
     namespace 'com.mechpravdy.neo'
     
+    // Дублируем оба синтаксиса для старой версии плагина AGP 8.1.1
+    compileSdkVersion 34
     compileSdk 34
+    
     ndkVersion "25.1.8937393"
 
     signingConfigs {
