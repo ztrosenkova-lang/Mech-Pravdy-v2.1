@@ -23,7 +23,7 @@ rootProject.name = "Mech-Pravdy-v2"
 include ':app'
 
 // ОФИЦИАЛЬНЫЙ СЦЕНАРИЙ АВТОЛИНКИНГА FACEBOOK ДЛЯ СТРУКТУРЫ С ПОДПАПКОЙ:
-// Этот системный скрипт САМ найдет, правильно подключит в граф Gradle и инициализирует 
-// версии для подпроектов :react-native и :pocketpalai_llama.rn строго по закону!
-apply from: new File(settingsDir, "react-native-brain/node_modules/@react-native/gradle-plugin/autolinking.gradle")
-autolinkLibrariesWithGradle()
+// Node.js динамически вычислит точный путь к скрипту внутри react-native-brain и скормит его компилятору.
+// Скрипт САМ зарегистрирует подпроект :react-native и :pocketpalai_llama.rn, убирая ошибку с методом split()!
+apply from: new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, new File(settingsDir, 'react-native-brain')).text.trim(), "../../../@react-native-community/cli-platform-android/native_modules.gradle")
+applyNativeModulesSettingsGradle(settingsDir, 'react-native-brain')
