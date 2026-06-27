@@ -22,8 +22,14 @@ rootProject.name = "Mech-Pravdy-v2"
 // Включаем твой нативный Android-чат
 include ':app'
 
-// ОФИЦИАЛЬНЫЙ СЦЕНАРИЙ АВТОЛИНКИНГА FACEBOOK ДЛЯ СТРУКТУРЫ С ПОДПАПКОЙ:
-// Node.js динамически вычислит точный путь к скрипту внутри react-native-brain и скормит его компилятору.
-// Скрипт САМ зарегистрирует подпроект :react-native и :pocketpalai_llama.rn, убирая ошибку с методом split()!
-apply from: new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, new File(settingsDir, 'react-native-brain')).text.trim(), "../../../@react-native-community/cli-platform-android/native_modules.gradle")
-applyNativeModulesSettingsGradle(settingsDir, 'react-native-brain')
+// ОФИЦИАЛЬНАЯ ИНСТРУКЦИЯ FACEBOOK ДЛЯ НАДСТРОЕК НАД ИСХОДНЫМ КОДОМ:
+// Мы подгружаем родной скрипт автолинкинга и явно указываем ему, 
+// что наш package.json и node_modules лежат внутри папки 'react-native-brain'!
+apply from: new File(settingsDir, "react-native-brain/node_modules/@react-native/gradle-plugin/autolinking.gradle")
+
+// Запускаем автолинкинг, передавая ему точный адрес JS-мозга.
+// Этот метод САМ создаст проект :react-native, САМ пропишет ему версию 0.73.0,
+// и движок Llama на строке 41 нативно прочитает все данные без единой ошибки!
+autolinkLibrariesWithGradle({
+    root = file("react-native-brain")
+})
