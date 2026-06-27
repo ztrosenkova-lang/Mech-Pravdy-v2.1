@@ -1,7 +1,7 @@
 name: Build Mech Pravdy APK
 
 on:
-  workflow_dispatch: # Запуск строго вручную по кнопке, чтобы сборки не сталкивались в очереди
+  workflow_dispatch: # Запуск строго вручную по кнопке
 
 jobs:
   build:
@@ -30,13 +30,11 @@ jobs:
           cd react-native-brain
           rm -rf node_modules package-lock.json yarn.lock
           yarn cache clean
-          # Законная установка: Yarn сам выстроит чистое дерево без lock-конфликтов
           yarn install --no-lockfile
 
       - name: Generate Permanent Keystore
         run: |
           mkdir -p app
-          # Автоматически создаем криптографически правильный постоянный ключ подписи в папке app
           keytool -genkeypair -v \
             -keystore app/mech-pravdy.jks \
             -alias mechpravdy \
@@ -50,19 +48,12 @@ jobs:
       - name: Build React Native Bundle
         run: |
           cd react-native-brain
-          # Создаем папки ресурсов в нативном слое app
           mkdir -p ../app/src/main/assets
           mkdir -p ../app/src/main/res/drawable-mdpi
-          # Запуск сборщика Metro. Он прочитает наш новый metro.config.js и пролетит билд без ошибок
           yarn bundle
 
       - name: Build with Gradle
         run: |
-          # БРОНЕБОЙНАЯ ЗАМЕНА СТРОКИ С ПРАВИЛЬНЫМ ЭКРАНИРОВАНИЕМ СЛЭШЕЙ:
-          # Мы больше не стираем файл целиком. Мы точечно меняем падающий split() на готовый массив версий,
-          # сохраняя всю внутреннюю логику кодогенерации (Codegen) самой библиотеки Llama!
-          sed -i 's/def chunks = reactNativeVersion.split("\\\\.")/def chunks = ["0", "73", "0"]/g' react-native-brain/node_modules/@pocketpalai/llama.rn/android/build.gradle
-
           echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           
