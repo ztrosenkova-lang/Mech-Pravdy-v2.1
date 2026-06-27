@@ -4,28 +4,18 @@ plugins {
     id 'com.facebook.react'
 }
 
-// Маскируем проект под требования Llama, чтобы вызов .version вернул валидный текст!
-project.rootProject.afterEvaluate {
-    project.rootProject.subprojects { sub ->
-        if (sub.name == 'app') {
-            sub.ext.set("version", "0.73.0")
-        }
-    }
-}
-
 react {
     root = file("../react-native-brain")
     reactNativeDir = file("../react-native-brain/node_modules/react-native")
     codegenDir = file("../react-native-brain/node_modules/@react-native/codegen")
-    cliFile = file("../react-native-brain/node_modules/react-native/cli.js")
+    cliPath = "../react-native-brain/node_modules/react-native/cli.js"
 }
 
 android {
     namespace 'com.mechpravdy.neo'
     
-    compileSdkVersion = 34
-    compileSdk = 34
-    ndkVersion = "25.1.8937393"
+    compileSdk 34
+    ndkVersion "25.1.8937393"
 
     signingConfigs {
         release {
@@ -38,10 +28,8 @@ android {
 
     defaultConfig {
         applicationId "com.mechpravdy.neo"
-        minSdk = 26
-        
-        targetSdkVersion = 34
-        targetSdk = 34
+        minSdk 26
+        targetSdk 34
         
         versionCode 1
         versionName "1.0"
@@ -68,10 +56,8 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled true // Включает ProGuard/R8 для сжатия кода
-            // Привязываем правила защиты кода
+            minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Принудительно подписываем релиз нашим сгенерированным JKS ключом
             signingConfig signingConfigs.release
         }
     }
@@ -105,7 +91,7 @@ android {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.21"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.8.22"
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
@@ -117,7 +103,7 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.0'
     implementation 'com.google.mlkit:text-recognition-chinese:16.0.0'
 
-    // Принудительно подключаем Android-слой нашего С++ Мозга
+    // Подключаем Android-слой нашего С++ Мозга
     implementation project(':pocketpalai_llama.rn')
 
     // React Native 0.73.0 Бинарники
@@ -132,22 +118,18 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-// Полностью замени наш прошлый нижний блок в app/build.gradle на этот:
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     kotlinOptions {
         verbose = true
-        // Правильный синтаксис передачи аргументов для Kotlin плагина:
         freeCompilerArgs += ["-Xreport-output-files"]
     }
 }
 
-// Бронебойный вывод содержимого из скрытого HTML-отчета прямо в консоль Actions
 gradle.taskGraph.afterTask { Task task, TaskState state ->
     if (state.failure && task.name.contains("compileReleaseKotlin")) {
         def reportFile = file("${project.buildDir}/reports/problems/problems-report.html")
         if (reportFile.exists()) {
             println("\n=== КРИТИЧЕСКИЙ ОТЧЕТ ОБ ОШИБКЕ ИЗ PROBLEMS-REPORT.HTML ===")
-            // Читаем файл, убираем HTML-теги и выводим чистый текст ошибки в консоль
             println(reportFile.text.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim())
             println("============================================================\n")
         }
