@@ -58,7 +58,7 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          # ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПИСЬ КОНФИГА LLAMA С КОРРЕКТНОЙ ВЕРСИЕЙ:
+          # ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПИСЬ КОНФИГА LLAMA С КОРРЕКТНОЙ ВЕРСИЕЙ И ЗАВИСИМОСТЯМИ:
           # Мы полностью заменяем файл библиотеки его чистым, рабочим аналогом, убирая проверку через .find()
           cat << 'EOF' > react-native-brain/node_modules/@pocketpalai/llama.rn/android/build.gradle
           buildscript {
@@ -102,8 +102,8 @@ jobs:
           }
 
           dependencies {
-              // Зависимости модуля
-              implementation "com.facebook.react:react-android"
+              // Жестко скармливаем нативные классы и аннотации React Native 0.73.0, чтобы закрыть 6 ошибок Java!
+              implementation "com.facebook.react:react-android:0.73.0"
           }
           EOF
 
