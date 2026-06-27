@@ -93,8 +93,6 @@ android {
         exclude "META-INF/NOTICE"
         exclude "META-INF/NOTICE.txt"
     }
-
-    configurationCache { active = false }
 }
 
 dependencies {
