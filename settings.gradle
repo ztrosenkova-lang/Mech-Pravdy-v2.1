@@ -11,14 +11,19 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
+        maven { url "$rootDir/node_modules/react-native/android" }
+        maven { url "$rootDir/node_modules/jsc-android/dist" }
     }
 }
 
 rootProject.name = "Mech-Pravdy-v2"
 
+// Включаем твой нативный Android-чат
 include ':app'
 
-// ЗАВОДСКОЙ СТАНДАРТ: Когда этот файл переедет в папку android/, 
-// этот относительный путь идеально нативно подцепит автолинкинг без всякого Node-шаманства!
-apply from: file("../node_modules/@react-native-community/cli-platform-android/native_modules.gradle")
+// ЗАВОДСКОЙ СТАНДАРТ ДЛЯ КОРНЕВОЙ СБОРКИ REACT NATIVE 0.73:
+// Мы берем прямой путь от текущей папки настроек (settingsDir).
+// Скрипт нативно подключит :react-native и :pocketpalai_llama.rn строго по чертежам Facebook!
+apply from: new File(settingsDir, "node_modules/@react-native-community/cli-platform-android/native_modules.gradle")
 applyNativeModulesSettingsGradle(settingsDir)
