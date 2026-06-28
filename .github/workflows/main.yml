@@ -27,7 +27,7 @@ jobs:
             --bundle-output app/src/main/assets/index.android.bundle \
             --assets-dest app/src/main/res
             
-          # ЗАВОДСКОЙ СТАНДАРТ СБОРКИ: Переходим в нативную папку android и запускаем компилятор
+          # ЗАВОДСКОЙ СТАНДАРТ: Заходим в нативную папку android, где теперь лежит наш gradlew
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
