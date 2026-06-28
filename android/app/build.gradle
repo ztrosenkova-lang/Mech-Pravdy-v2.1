@@ -1,0 +1,65 @@
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+apply plugin: "org.jetbrains.kotlin.android"
+
+react {
+    // ЗАВОДСКОЙ СТАНДАРТ: JS-корень теперь находится на два уровня выше папки app!
+    root = file("../../")
+    reactNativeDir = file("../../node_modules/react-native")
+    codegenDir = file("../../node_modules/@react-native/codegen")
+}
+
+def enableProguardInReleaseBuilds = true
+def jscFlavor = 'org.webkit:android-jsc:+'
+
+android {
+    namespace "com.mechpravdy.neo"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.mechpravdy.neo"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('mech-pravdy.jks')
+            storePassword 'mechpravdy2024'
+            keyAlias 'mechpravdy'
+            keyPassword 'mechpravdy2024'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+dependencies {
+    // Ядро Android, UI и Kotlin
+    implementation "androidx.core:core-ktx:1.12.0"
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "com.google.android.material:material:1.11.0"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.8.22"
+
+    // Интеграция React Native 0.73
+    implementation "com.facebook.react:react-android:0.73.0"
+    implementation jscFlavor
+
+    // Твой нативный чат и ИИ-модули ML Kit
+    implementation "com.google.mlkit:translate:17.0.1"
+    implementation "com.google.mlkit:language-id:17.0.4"
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    
+    // ЗАВОД: Автолинкинг сам подключит библиотеку Llama, ручная строка удалена!
+}
