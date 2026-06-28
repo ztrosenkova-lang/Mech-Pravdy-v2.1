@@ -24,5 +24,5 @@ include ':app'
 
 // ОФИЦИАЛЬНЫЙ СЦЕНАРИЙ АВТОЛИНКИНГА FACEBOOK ДЛЯ СТРУКТУРЫ В ПОДПАПКЕ:
 // Мы поднимаемся на один уровень вверх (../), чтобы Gradle прочитал файл из корня репозитория!
+// Данный скрипт автоматически выполнит всю внутреннюю разметку зависимостей без вызова падающих методов.
 apply from: new File(settingsDir, "../node_modules/@react-native-community/cli-platform-android/native_modules.gradle")
-applyNativeModulesSettingsGradle(settingsDir)
