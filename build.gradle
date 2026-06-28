@@ -1,64 +1,24 @@
 buildscript {
-    // Явно указываем Gradle-системе, где физически находится ядро React Android
     ext {
         buildToolsVersion = "34.0.0"
-        minSdkVersion = 23
+        minSdkVersion = 26
         compileSdkVersion = 34
         targetSdkVersion = 34
         ndkVersion = "25.1.8937393"
-        kotlinVersion = "2.0.21"
-        
-        // Путь к React Native
-        reactNativeDir = new File(rootDir, "react-native-brain/node_modules/react-native")
+        kotlinVersion = "1.8.22"
     }
-    
-    // Устанавливаем системное свойство для React Native
-    System.setProperty("REACT_ANDROID_DIR", "${projectDir}/react-native-brain/node_modules/react-native/ReactAndroid")
-    
     repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://jitpack.io' }
-        // Добавляем локальный репозиторий React Native
-        maven { url "${projectDir}/react-native-brain/node_modules/react-native/android" }
-        maven { url "${projectDir}/react-native-brain/node_modules/jsc-android/dist" }
+        google(); mavenCentral(); maven { url 'https://jitpack.io' }
     }
-    
     dependencies {
         classpath 'com.android.tools.build:gradle:8.1.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}"
-        
-        // Добавляем плагин React Native с явной версией
-        // Важно: версия должна соответствовать вашей React Native
-        classpath("com.facebook.react:react-native-gradle-plugin")
-        // ИЛИ если не находит автоматически, укажите версию явно:
-        // classpath("com.facebook.react:react-native-gradle-plugin:0.73.0")
+        classpath("com.facebook.react:react-native-gradle-plugin:0.73.0")
     }
 }
 
 allprojects {
     repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://jitpack.io' }
-        maven { url "${rootDir}/react-native-brain/node_modules/react-native/android" }
-        maven { url "${rootDir}/react-native-brain/node_modules/jsc-android/dist" }
-    }
-}
-
-// Настройка для всех подпроектов
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty("android")) {
-            project.android {
-                compileSdkVersion rootProject.ext.compileSdkVersion
-                buildToolsVersion rootProject.ext.buildToolsVersion
-                
-                defaultConfig {
-                    minSdkVersion rootProject.ext.minSdkVersion
-                    targetSdkVersion rootProject.ext.targetSdkVersion
-                }
-            }
-        }
+        google(); mavenCentral(); maven { url 'https://jitpack.io' }
     }
 }
