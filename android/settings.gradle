@@ -19,10 +19,13 @@ dependencyResolutionManagement {
 
 rootProject.name = "Mech-Pravdy-v2"
 
-// Включаем твой нативный Android-чат
+// Включаем наше переехавшее нативное приложение
 include ':app'
 
-// ОФИЦИАЛЬНЫЙ СЦЕНАРИЙ АВТОЛИНКИНГА FACEBOOK ДЛЯ СТРУКТУРЫ В ПОДПАПКЕ:
-// Мы поднимаемся на один уровень вверх (../), чтобы Gradle прочитал файл из корня репозитория!
-// Данный скрипт автоматически выполнит всю внутреннюю разметку зависимостей без вызова падающих методов.
+// Официальный сценарий автолинкинга Facebook
 apply from: new File(settingsDir, "../node_modules/@react-native-community/cli-platform-android/native_modules.gradle")
+
+// ЗАВОДСКОЙ МОНТАЖ ПЛАГИНА:
+// Нативно монтируем локальный плагин фреймворка из node_modules прямо в граф сборки.
+// Это решает проблему Could not find, заменяя удаленные сетевые запросы локальным исходником!
+includeBuild('../node_modules/@react-native/gradle-plugin')
