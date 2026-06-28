@@ -1,0 +1,22 @@
+{
+  "name": "react-native-brain",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "start": "react-native start",
+    "bundle": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output ../app/src/main/assets/index.android.bundle --assets-dest ../app/src/main/res"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.73.0",
+    "react-native-fs": "^2.20.0",
+    "@pocketpalai/llama.rn": "0.8.1-0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@babel/runtime": "^7.20.0",
+    "@react-native/babel-preset": "^0.73.0",
+    "@react-native/metro-config": "^0.73.0"
+  }
+}
