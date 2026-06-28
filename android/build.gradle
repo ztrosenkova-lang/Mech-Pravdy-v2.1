@@ -12,10 +12,10 @@ buildscript {
         mavenCentral()
         maven { url 'https://jitpack.io' }
         
-        // СТРОГИЙ ЗАКОН СБОРКИ REACT NATIVE:
-        // Указываем компилятору искать плагин локально в node_modules на диске,
-        // чтобы он мгновенно считал версию 0.73.0 без обращения к удаленным серверам!
-        maven { url "${rootDir}/../node_modules/react-native/android" }
+        // ОФИЦИАЛЬНЫЙ СТАНДАРТ ПУТИ ДЛЯ REACT NATIVE 0.73:
+        // Указываем компилятору искать плагин в специализированной папке плагина фреймворка,
+        // где физически лежит скомпилированный jar-файл версии 0.73.0!
+        maven { url "${rootDir}/../node_modules/@react-native/gradle-plugin/android" }
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.1.1'
