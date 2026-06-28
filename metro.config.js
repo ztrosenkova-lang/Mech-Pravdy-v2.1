@@ -1,16 +1,11 @@
 const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
-const path = require('path');
 
-const config = {
-  resolver: {
-    extraNodeModules: {
-      '@babel/traverse': path.resolve(__dirname, 'node_modules/@babel/traverse'),
-      '@babel/core': path.resolve(__dirname, 'node_modules/@babel/core'),
-    },
-    blockList: [
-      /node_modules\/@pocketpalai\/llama\.rn\/node_modules\/@babel\/.*/
-    ]
-  },
-};
+/**
+ * Metro configuration
+ * https://reactnative.dev
+ *
+ * @type {import('metro-config').MetroConfig}
+ */
+const config = {};
 
 module.exports = mergeConfig(getDefaultConfig(__dirname), config);
