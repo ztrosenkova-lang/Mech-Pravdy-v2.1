@@ -16,14 +16,10 @@ jobs:
       - run: yarn install --no-lockfile
       - name: Build Bundle & APK
         run: |
-          # 1. ЗАВОД: Физически перемещаем папку приложения app внутрь папки android,
-          # чтобы структура на 100% соответствовала эталону React Native!
-          mv app android/app
-          
-          # 2. Создаем папки ресурсов внутри уже переехавшего приложения
+          # 1. Создаем папки ресурсов внутри физически правильной папки app
           mkdir -p android/app/src/main/assets
           
-          # 3. Запуск сборщика Metro из корня проекта для упаковки оверлея
+          # 2. Запуск сборщика Metro из корня проекта для упаковки оверлея
           ./node_modules/.bin/react-native bundle \
             --platform android \
             --dev false \
@@ -31,7 +27,7 @@ jobs:
             --bundle-output android/app/src/main/assets/index.android.bundle \
             --assets-dest android/app/src/main/res
           
-          # 4. ЗАВОДСКОЙ СТАНДАРТ СБОРКИ:
+          # 3. ЗАВОДСКОЙ СТАНДАРТ СБОРКИ:
           # Переходим в нативную папку android и запускаем чистую компиляцию
           cd android
           chmod +x gradlew
