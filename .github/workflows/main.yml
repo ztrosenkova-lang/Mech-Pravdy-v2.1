@@ -14,21 +14,25 @@ jobs:
         with: {node-version: '18'}
         
       - run: yarn install --no-lockfile
+      
+      - name: Generate Permanent Keystore
+        run: |
+          # ИСПРАВЛЕНИЕ: Генерируем ключ строго внутри физической нативной папки android/app
+          mkdir -p android/app
+          keytool -genkeypair -v \
+            -keystore android/app/mech-pravdy.jks \
+            -alias mechpravdy \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass mechpravdy2024 \
+            -keypass mechpravdy2024 \
+            -dname "CN=MechPravdy, OU=Dev, O=Neo, L=Smolensk, S=Smolensk, C=RU"
+
       - name: Build Bundle & APK
         run: |
-          # 1. Создаем папки ресурсов внутри физически правильной папки app
           mkdir -p android/app/src/main/assets
-          
-          # 2. Запуск сборщика Metro из корня проекта для упаковки оверлея
-          ./node_modules/.bin/react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file index.js \
-            --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res
-          
-          # 3. ЗАВОДСКОЙ СТАНДАРТ СБОРКИ:
-          # Переходим в нативную папку android и запускаем чистую компиляцию
+          ./node_modules/.bin/react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
