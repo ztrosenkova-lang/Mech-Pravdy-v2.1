@@ -28,8 +28,8 @@
 -keepclassmembers class com.mechpravdy.neo.LlamaJNI { *; }
 
 # Запрещаем стирать нативную библиотеку PocketPal AI Llama.rn
--keep class com.pocketpalai.llama.** { *; }
--keepclassmembers class com.pocketpalai.llama.** { *; }
+-keep class com.rnllama.** { *; }
+-keepclassmembers class com.rnllama.** { *; }
 
 # Сохраняем весь нативный мост и рефлексию ядра React Native
 -keep class com.facebook.react.** { *; }
