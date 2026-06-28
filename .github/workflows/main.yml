@@ -23,17 +23,18 @@ jobs:
         with:
           node-version: '18'
           cache: 'yarn'
-          cache-dependency-path: react-native-brain/package.json
+          cache-dependency-path: package.json # ЗАВОД: Кэш привязан к корневому файлу
 
       - name: Install React Native dependencies
         run: |
-          cd react-native-brain
+          # ЗАВОД: Очистка и чистая установка пакетов прямо в корне репозитория
           rm -rf node_modules package-lock.json yarn.lock
           yarn cache clean
           yarn install --no-lockfile
 
       - name: Generate Permanent Keystore
         run: |
+          # ЗАВОД: Ключ подписи генерируется внутри нативной папки приложения
           mkdir -p app
           keytool -genkeypair -v \
             -keystore app/mech-pravdy.jks \
@@ -47,19 +48,21 @@ jobs:
 
       - name: Build React Native Bundle
         run: |
-          cd react-native-brain
-          mkdir -p ../app/src/main/assets
-          mkdir -p ../app/src/main/res/drawable-mdpi
-          yarn bundle
+          # ЗАВОД: Запуск Metro Bundler из корня. Бандл укладывается на свое законное место
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/drawable-mdpi
+          yarn bundle --platform android --dev false --entry-file index.js --bundle-output app/src/main/assets/index.android.bundle --assets-dest app/src/main/res
 
       - name: Build with Gradle
         run: |
-          echo "reactNativePath=${{ github.workspace }}/react-native-brain/node_modules/react-native" >> gradle.properties
+          # ЗАВОД: Все нативные переменные пишутся в свойства без хакерских абсолютных путей
+          echo "reactNativePath=${{ github.workspace }}/node_modules/react-native" >> gradle.properties
           echo "nodeExecutablePath=$(which node)" >> gradle.properties
           
           chmod +x gradlew
+          # Команда компиляции запускается прямо из корня, так как Gradle-wrapper лежит здесь же
           ./gradlew assembleRelease \
-            -PreactNativePath="${{ github.workspace }}/react-native-brain/node_modules/react-native" \
+            -PreactNativePath="${{ github.workspace }}/node_modules/react-native" \
             -Pkotlin.warnings.as.errors=false \
             -Pandroid.experimental.maxNumberOfLocalCmakeJobs=2 \
             --no-daemon \
