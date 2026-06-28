@@ -16,18 +16,19 @@ jobs:
       - run: yarn install --no-lockfile
       - name: Build Bundle & APK
         run: |
-          # Создаем папки ресурсов внутри папки app приложения
+          # 1. Создаем папки ресурсов внутри папки app приложения
           mkdir -p app/src/main/assets
           
-          # Запуск сборщика Metro из корня проекта
+          # 2. Запуск сборщика Metro из корня проекта для упаковки оверлея
           ./node_modules/.bin/react-native bundle \
             --platform android \
             --dev false \
             --entry-file index.js \
             --bundle-output app/src/main/assets/index.android.bundle \
             --assets-dest app/src/main/res
-            
-          # ЗАВОДСКОЙ СТАНДАРТ: Заходим в нативную папку android, где теперь лежит наш gradlew
+          
+          # 3. ЗАВОДСКОЙ СТАНДАРТ СБОРКИ:
+          # Переходим в нативную папку android, где теперь лежат абсолютно все файлы Gradle-обертки
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
