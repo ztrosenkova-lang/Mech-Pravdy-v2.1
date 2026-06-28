@@ -10,8 +10,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: {java-version: '17', distribution: 'temurin', cache: 'gradle'}
+        
+      # ИСПРАВЛЕНИЕ: Убираем cache: 'yarn', чтобы экшен перестал аварийно требовать файл yarn.lock
       - uses: actions/setup-node@v4
-        with: {node-version: '18', cache: 'yarn'}
+        with: {node-version: '18'}
+        
       - run: yarn install --no-lockfile
       - name: Build Bundle & APK
         run: |
