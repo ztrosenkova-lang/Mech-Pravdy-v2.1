@@ -1,9 +1,3 @@
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 package com.mechpravdy.neo
 
 import android.Manifest
@@ -36,6 +30,9 @@ import androidx.core.content.ContextCompat
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -144,6 +141,28 @@ class MainActivity : AppCompatActivity() {
                     }
                 } catch (e: Exception) {
                     appendChat("[ГАЛЕРЕЯ] Ошибка: ${e.message}")
+                }
+            }
+        }
+    }
+    
+    // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
+    private val galleryLauncherForOCR = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val data: Intent? = result.data
+            val imageUri: Uri? = data?.data
+            if (imageUri != null) {
+                try {
+                    val inputStream = contentResolver.openInputStream(imageUri)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+                    if (bitmap != null) {
+                        recognizeTextFromBitmap(bitmap)
+                    } else {
+                        appendChat("[OCR] Не удалось загрузить фото")
+                    }
+                } catch (e: Exception) {
+                    appendChat("[OCR] Ошибка: ${e.message}")
                 }
             }
         }
@@ -269,11 +288,16 @@ class MainActivity : AppCompatActivity() {
             voiceButton.setOnClickListener { hideKeyboard(); startVoiceInput() }
             cameraButton.setOnClickListener { hideKeyboard(); captureAndAnalyze() }
             
+            // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
             attachButton.setOnClickListener {
+                val options = arrayOf("Анализ фото (ИИ)", "Распознать текст с фото")
                 AlertDialog.Builder(this)
                     .setTitle("Выберите действие")
-                    .setItems(arrayOf("Анализ фото (ИИ)")) { _, _ ->
-                        openGallery()
+                    .setItems(options) { _, which ->
+                        when (which) {
+                            0 -> openGallery()
+                            1 -> openGalleryForOCR()
+                        }
                     }
                     .show()
             }
@@ -327,10 +351,8 @@ class MainActivity : AppCompatActivity() {
                             val brainResponseFile = File(filesDir, "brain_response.txt")
                             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
                             
-                            // ИСПРАВЛЕННЫЙ FileObserver с правильным управлением флагом
                             brainObserver = object : android.os.FileObserver(brainResponseFile.path, android.os.FileObserver.CLOSE_WRITE) {
                                 override fun onEvent(event: Int, path: String?) {
-                                    // Проверяем флаг рекурсии - сбрасываем его здесь
                                     if (isSelfModification) {
                                         isSelfModification = false
                                         return
@@ -346,16 +368,13 @@ class MainActivity : AppCompatActivity() {
                                                 statusDot.setBackgroundResource(R.drawable.status_dot_green)
                                             }
                                             
-                                            // ТОЧЕЧНОЕ ИСПРАВЛЕНИЕ: 
-                                            // Флаг сбрасывается ТОЛЬКО в onEvent при перехвате события очистки
-                                            // В фоновом потоке НЕТ finally { isSelfModification = false }
                                             Thread {
                                                 try {
-                                                    isSelfModification = true // Взводим флаг блокировки
-                                                    brainResponseFile.writeText("") // Очищаем файл
+                                                    isSelfModification = true
+                                                    brainResponseFile.writeText("")
                                                 } catch (e: Exception) {
                                                     Log.e("MECH_CHAT", "Ошибка очистки файла: ${e.message}")
-                                                    isSelfModification = false // Сбрасываем только при аварии
+                                                    isSelfModification = false
                                                 }
                                             }.start()
                                         }
@@ -393,16 +412,13 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    // ИСПРАВЛЕНИЕ №1: Принудительный перезапуск FileObserver в onResume
     override fun onResume() {
         super.onResume()
         
-        // Если режим МОЗГ активен, перезапускаем наблюдатель
         if (checkButton.text.toString() == "ВЫКЛ МОЗГ") {
             val brainResponseFile = File(filesDir, "brain_response.txt")
             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
             
-            // Если observer существует, перезапускаем его
             brainObserver?.let { observer ->
                 try {
                     observer.stopWatching()
@@ -412,7 +428,6 @@ class MainActivity : AppCompatActivity() {
                     Log.e("MECH_LOG", "Ошибка перезапуска FileObserver: ${e.message}")
                 }
             } ?: run {
-                // Если observer не существует, создаем новый
                 brainObserver = object : android.os.FileObserver(brainResponseFile.path, android.os.FileObserver.CLOSE_WRITE) {
                     override fun onEvent(event: Int, path: String?) {
                         if (isSelfModification) {
@@ -430,8 +445,6 @@ class MainActivity : AppCompatActivity() {
                                     statusDot.setBackgroundResource(R.drawable.status_dot_green)
                                 }
                                 
-                                // ТОЧЕЧНОЕ ИСПРАВЛЕНИЕ: 
-                                // Флаг сбрасывается ТОЛЬКО в onEvent
                                 Thread {
                                     try {
                                         isSelfModification = true
@@ -455,7 +468,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Сохраняем только память, FileObserver не останавливаем
         saveMemory(chatOutput.text.toString())
     }
 
@@ -495,6 +507,39 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
+    private fun openGalleryForOCR() {
+        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        galleryLauncherForOCR.launch(intent)
+    }
+
+    // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
+    private fun recognizeTextFromBitmap(bitmap: Bitmap) {
+        setStatus("Распознаю текст...", "yellow")
+        
+        val recognizer = TextRecognition.getClient(
+            ChineseTextRecognizerOptions.Builder().build()
+        )
+        
+        val image = InputImage.fromBitmap(bitmap, 0)
+        
+        recognizer.process(image)
+            .addOnSuccessListener { visionText ->
+                val recognizedText = visionText.text
+                if (recognizedText.isNotEmpty()) {
+                    appendChat("[ТЕКСТ С ФОТО] $recognizedText")
+                    messageInput.setText(recognizedText)
+                } else {
+                    appendChat("[ТЕКСТ С ФОТО] Текст не найден")
+                }
+                setStatus("Готов", "green")
+            }
+            .addOnFailureListener { e ->
+                appendChat("[ОШИБКА] Распознавание текста: ${e.message}")
+                setStatus("Ошибка", "red")
+            }
     }
 
     private fun loadSettings() {
@@ -818,17 +863,43 @@ class MainActivity : AppCompatActivity() {
         val body = JsonObject().apply {
             addProperty("model", textModel())
             add("messages", JsonArray().apply {
-                add(JsonObject().apply { addProperty("role", "system"); addProperty("content", "Сделай краткие выводы из этого разговора. Что важно запомнить? Только суть. Не более 500 символов. На русском.") })
-                add(JsonObject().apply { addProperty("role", "user"); addProperty("content", memory) })
+                add(JsonObject().apply { 
+                    addProperty("role", "system")
+                    addProperty("content", "Сделай краткие выводы из этого разговора. Что важно запомнить? Только суть. Не более 500 символов. На русском.")
+                })
+                add(JsonObject().apply { 
+                    addProperty("role", "user")
+                    addProperty("content", memory)
+                })
             })
             addProperty("temperature", temperature.toDouble())
             addProperty("max_tokens", 300)
         }
         val request = Request.Builder().url(currentApiUrl)
-        request.header("Authorization", "Bearer $token")
-        cloudClient.newCall(request.post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { appendChat("[МОЗГ] Ошибка: ${e.message}"); setStatus("Готов", "green") }
-            override fun onResponse(call: Call, response: Response) { val b = response.body?.string() ?: ""; if (response.isSuccessful) { val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString; saveBrain(a); appendChat("[МОЗГ] Запомнил:\n$a") } else { appendChat("[МОЗГ] Ошибка HTTP ${response.code}") }; setStatus("Готов", "green"); response.close() }
+            .header("Authorization", "Bearer $token")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        cloudClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { 
+                appendChat("[МОЗГ] Ошибка: ${e.message}")
+                setStatus("Готов", "green")
+            }
+            override fun onResponse(call: Call, response: Response) { 
+                val b = response.body?.string() ?: ""
+                if (response.isSuccessful) { 
+                    val a = gson.fromJson(b, JsonObject::class.java)
+                        .getAsJsonArray("choices")
+                        .get(0).asJsonObject
+                        .getAsJsonObject("message")
+                        .get("content").asString
+                    saveBrain(a)
+                    appendChat("[МОЗГ] Запомнил:\n$a")
+                } else { 
+                    appendChat("[МОЗГ] Ошибка HTTP ${response.code}")
+                }
+                setStatus("Готов", "green")
+                response.close()
+            }
         })
     }
 
@@ -903,7 +974,13 @@ class MainActivity : AppCompatActivity() {
         setStatus("Помощь", "green")
     }
 
-    private fun hideKeyboard() { try { val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager; val view = currentFocus ?: View(this); imm.hideSoftInputFromWindow(view.windowToken, 0) } catch (_: Exception) {} }
+    private fun hideKeyboard() { 
+        try { 
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            val view = currentFocus ?: View(this)
+            imm.hideSoftInputFromWindow(view.windowToken, 0)
+        } catch (_: Exception) {}
+    }
 
     private fun switchToGigaChat() {
         isGigaChatMode = true
@@ -974,8 +1051,27 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun setStatus(text: String, color: String) = runOnUiThread { try { statusText.text = "$text | ${getMyAge()}"; statusDot.setBackgroundResource(when(color){"green"->R.drawable.status_dot_green;"yellow"->R.drawable.status_dot_yellow;"red"->R.drawable.status_dot_red;"blue"->R.drawable.status_dot_green;else->R.drawable.status_dot_gray}) } catch (_: Exception) {} }
-    private fun appendChat(text: String) = runOnUiThread { try { chatOutput.append("\n\n$text"); scrollChatToBottom() } catch (_: Exception) {} }
+    private fun setStatus(text: String, color: String) = runOnUiThread { 
+        try { 
+            statusText.text = "$text | ${getMyAge()}"
+            statusDot.setBackgroundResource(
+                when(color) {
+                    "green" -> R.drawable.status_dot_green
+                    "yellow" -> R.drawable.status_dot_yellow
+                    "red" -> R.drawable.status_dot_red
+                    "blue" -> R.drawable.status_dot_green
+                    else -> R.drawable.status_dot_gray
+                }
+            )
+        } catch (_: Exception) {}
+    }
+    
+    private fun appendChat(text: String) = runOnUiThread { 
+        try { 
+            chatOutput.append("\n\n$text")
+            scrollChatToBottom()
+        } catch (_: Exception) {}
+    }
 
     private fun buildNeoPrompt(): String {
         val age = getMyAge()
@@ -1068,7 +1164,12 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Голос не поддерживается", Toast.LENGTH_SHORT).show()
     }
     
-    private fun captureAndAnalyze() = try { cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) } catch (e: Exception) { appendChat("[ERROR] ${e.message}") }
+    private fun captureAndAnalyze() = try { 
+        cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+    } catch (e: Exception) { 
+        appendChat("[ERROR] ${e.message}")
+    }
+    
     private fun pasteFromClipboard() { 
         try { 
             val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -1153,9 +1254,36 @@ class MainActivity : AppCompatActivity() {
         if (authKey.isEmpty()) return
         setStatus("Генерация...", "yellow")
         if (currentApiUrl == apiUrlGigaChat) {
-            cloudClient.newCall(Request.Builder().url(authUrl).header("Content-Type","application/x-www-form-urlencoded").header("Authorization","Basic $authKey").header("RqUID","ac5edc2e-2c74-47cb-97c1-69249136cf8b").post(RequestBody.create("application/x-www-form-urlencoded".toMediaType(), "scope=GIGACHAT_API_PERS")).build()).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}") }
-                override fun onResponse(call: Call, response: Response) { val b = response.body?.string() ?: ""; if (response.isSuccessful) { val t = gson.fromJson(b, JsonObject::class.java).get("access_token")?.asString ?: ""; if (t.isNotEmpty()) { runOnUiThread { tokenInput.setText(t) }; appendChat("[SYSTEM] Токен готов."); setStatus("Готов", "green") } } else appendChat("[ERROR] HTTP ${response.code}"); response.close() }
+            cloudClient.newCall(
+                Request.Builder()
+                    .url(authUrl)
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Authorization", "Basic $authKey")
+                    .header("RqUID", "ac5edc2e-2c74-47cb-97c1-69249136cf8b")
+                    .post(RequestBody.create(
+                        "application/x-www-form-urlencoded".toMediaType(),
+                        "scope=GIGACHAT_API_PERS"
+                    ))
+                    .build()
+            ).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) { 
+                    appendChat("[ERROR] ${e.message}")
+                }
+                override fun onResponse(call: Call, response: Response) { 
+                    val b = response.body?.string() ?: ""
+                    if (response.isSuccessful) { 
+                        val t = gson.fromJson(b, JsonObject::class.java)
+                            .get("access_token")?.asString ?: ""
+                        if (t.isNotEmpty()) { 
+                            runOnUiThread { tokenInput.setText(t) }
+                            appendChat("[SYSTEM] Токен готов.")
+                            setStatus("Готов", "green")
+                        } 
+                    } else {
+                        appendChat("[ERROR] HTTP ${response.code}")
+                    }
+                    response.close()
+                }
             })
         } else {
             runOnUiThread {
@@ -1171,7 +1299,12 @@ class MainActivity : AppCompatActivity() {
         if (token.isEmpty()) return
         val body = JsonObject().apply {
             addProperty("model", textModel())
-            add("messages", JsonArray().apply { add(JsonObject().apply { addProperty("role", "user"); addProperty("content", "ping") }) })
+            add("messages", JsonArray().apply { 
+                add(JsonObject().apply { 
+                    addProperty("role", "user")
+                    addProperty("content", "ping")
+                })
+            })
             addProperty("max_tokens", 1)
         }
         val request = Request.Builder().url(currentApiUrl)
@@ -1179,8 +1312,13 @@ class MainActivity : AppCompatActivity() {
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
         cloudClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}") }
-            override fun onResponse(call: Call, response: Response) { appendChat(if (response.isSuccessful) "[SYSTEM] Токен активен." else "[ERROR] Токен не работает."); response.close() }
+            override fun onFailure(call: Call, e: IOException) { 
+                appendChat("[ERROR] ${e.message}")
+            }
+            override fun onResponse(call: Call, response: Response) { 
+                appendChat(if (response.isSuccessful) "[SYSTEM] Токен активен." else "[ERROR] Токен не работает.")
+                response.close()
+            }
         })
     }
     
@@ -1236,8 +1374,14 @@ class MainActivity : AppCompatActivity() {
         val body = JsonObject().apply {
             addProperty("model", if (currentApiUrl == apiUrlGigaChat) modelGigaChat else modelCloud)
             add("messages", JsonArray().apply {
-                add(JsonObject().apply { addProperty("role", "system"); addProperty("content", prompt) })
-                add(JsonObject().apply { addProperty("role", "user"); addProperty("content", msg) })
+                add(JsonObject().apply { 
+                    addProperty("role", "system")
+                    addProperty("content", prompt)
+                })
+                add(JsonObject().apply { 
+                    addProperty("role", "user")
+                    addProperty("content", msg)
+                })
             })
             addProperty("temperature", temperature.toDouble())
             addProperty("max_tokens", maxTokens)
@@ -1247,15 +1391,33 @@ class MainActivity : AppCompatActivity() {
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
         cloudClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { appendChat("[ERROR] ${e.message}"); matrixHeader.connectionLost = true; setStatus("Нет связи", "red") }
+            override fun onFailure(call: Call, e: IOException) { 
+                appendChat("[ERROR] ${e.message}")
+                matrixHeader.connectionLost = true
+                setStatus("Нет связи", "red")
+            }
             override fun onResponse(call: Call, response: Response) {
                 val b = response.body?.string() ?: ""
                 if (response.isSuccessful) {
-                    val a = gson.fromJson(b, JsonObject::class.java).getAsJsonArray("choices").get(0).asJsonObject.getAsJsonObject("message").get("content").asString
-                    val label = when (currentApiUrl) { apiUrlGigaChat -> "[GigaChat]" else -> "[Облачный ИИ]" }
+                    val a = gson.fromJson(b, JsonObject::class.java)
+                        .getAsJsonArray("choices")
+                        .get(0).asJsonObject
+                        .getAsJsonObject("message")
+                        .get("content").asString
+                    val label = when (currentApiUrl) { 
+                        apiUrlGigaChat -> "[GigaChat]" 
+                        else -> "[Облачный ИИ]" 
+                    }
                     val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
-                    appendChat(responseText); speakText(a); matrixHeader.connectionLost = false; setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
-                } else { appendChat("[ERROR] HTTP ${response.code}"); matrixHeader.connectionLost = true; setStatus("Ошибка", "red") }
+                    appendChat(responseText)
+                    speakText(a)
+                    matrixHeader.connectionLost = false
+                    setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                } else { 
+                    appendChat("[ERROR] HTTP ${response.code}")
+                    matrixHeader.connectionLost = true
+                    setStatus("Ошибка", "red")
+                }
                 response.close()
             }
         })
@@ -1264,7 +1426,10 @@ class MainActivity : AppCompatActivity() {
     private fun speakText(text: String) {
         tts?.let {
             if (it.isSpeaking) { it.stop() }
-            val cleanText = text.replace(Regex("[*_~`#]"), "").replace(Regex("\\[.*?\\]\\(.*?\\)"), "").replace(Regex("\\s+"), " ").trim()
+            val cleanText = text.replace(Regex("[*_~`#]"), "")
+                .replace(Regex("\\[.*?\\]\\(.*?\\)"), "")
+                .replace(Regex("\\s+"), " ")
+                .trim()
             it.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
         }
     }
