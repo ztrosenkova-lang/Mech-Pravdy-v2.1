@@ -28,12 +28,12 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
-// ===== ТРИ КРИТИЧЕСКИХ ИМПОРТА GSON =====
+
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 
-// ===== ИМПОРТЫ ML KIT ДЛЯ OCR =====
+
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
+    
     private val galleryLauncherForOCR = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             val data: Intent? = result.data
@@ -293,7 +293,7 @@ class MainActivity : AppCompatActivity() {
             voiceButton.setOnClickListener { hideKeyboard(); startVoiceInput() }
             cameraButton.setOnClickListener { hideKeyboard(); captureAndAnalyze() }
             
-            // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
+            
             attachButton.setOnClickListener {
                 val options = arrayOf("Анализ фото (ИИ)", "Распознать текст с фото")
                 AlertDialog.Builder(this)
@@ -514,13 +514,13 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
+    
     private fun openGalleryForOCR() {
         val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
         galleryLauncherForOCR.launch(intent)
     }
 
-    // ===== ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ OCR =====
+    
     private fun recognizeTextFromBitmap(bitmap: Bitmap) {
         setStatus("Распознаю текст...", "yellow")
         
@@ -859,7 +859,7 @@ class MainActivity : AppCompatActivity() {
         return combined.takeLast(maxContextChars)
     }
 
-    // ===== ИСПРАВЛЕННЫЙ МЕТОД analyzeAndRemember =====
+    
     private fun analyzeAndRemember() {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) { appendChat("[МОЗГ] Сгенерируйте токен."); return }
@@ -1021,7 +1021,7 @@ class MainActivity : AppCompatActivity() {
         checkConnection()
     }
 
-    // ===== ИСПРАВЛЕННЫЙ МЕТОД checkConnection =====
+    
     private fun checkConnection() {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) {
@@ -1211,7 +1211,7 @@ class MainActivity : AppCompatActivity() {
         } 
     }
 
-    // ===== ИСПРАВЛЕННЫЙ МЕТОД analyzePhoto =====
+    
     private fun analyzePhoto(bitmap: Bitmap) {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) {
@@ -1406,7 +1406,7 @@ class MainActivity : AppCompatActivity() {
         sendToCloud(msg, prompt)
     }
     
-    // ===== ИСПРАВЛЕННЫЙ МЕТОД sendToCloud =====
+    
     private fun sendToCloud(msg: String, prompt: String) {
         val token = tokenInput.text.toString().trim()
         
