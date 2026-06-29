@@ -1,7 +1,5 @@
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
 package com.mechpravdy.neo
+
 import android.Manifest
 import android.app.AlertDialog
 import android.content.ClipData
@@ -29,12 +27,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+
+// ===== ТРИ КРИТИЧЕСКИХ ИМПОРТА GSON =====
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+
+// ===== ИМПОРТЫ ML KIT ДЛЯ OCR =====
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -856,31 +859,37 @@ class MainActivity : AppCompatActivity() {
         return combined.takeLast(maxContextChars)
     }
 
+    // ===== ИСПРАВЛЕННЫЙ МЕТОД analyzeAndRemember =====
     private fun analyzeAndRemember() {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) { appendChat("[МОЗГ] Сгенерируйте токен."); return }
         val memory = loadMemory().takeLast(4000)
         if (memory.isBlank()) { appendChat("[МОЗГ] Нечего анализировать."); return }
         setStatus("Думаю...", "yellow")
+        
         val body = JsonObject().apply {
             addProperty("model", textModel())
-            add("messages", JsonArray().apply {
-                add(JsonObject().apply { 
+            val messagesArray = JsonArray().apply {
+                add(JsonObject().apply {
                     addProperty("role", "system")
                     addProperty("content", "Сделай краткие выводы из этого разговора. Что важно запомнить? Только суть. Не более 500 символов. На русском.")
                 })
-                add(JsonObject().apply { 
+                add(JsonObject().apply {
                     addProperty("role", "user")
                     addProperty("content", memory)
                 })
-            })
+            }
+            add("messages", messagesArray)
             addProperty("temperature", temperature.toDouble())
             addProperty("max_tokens", 300)
         }
-        val request = Request.Builder().url(currentApiUrl)
+        
+        val request = Request.Builder()
+            .url(currentApiUrl)
             .header("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
+            
         cloudClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { 
                 appendChat("[МОЗГ] Ошибка: ${e.message}")
@@ -889,13 +898,17 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) { 
                 val b = response.body?.string() ?: ""
                 if (response.isSuccessful) { 
-                    val a = gson.fromJson(b, JsonObject::class.java)
-                        .getAsJsonArray("choices")
-                        .get(0).asJsonObject
-                        .getAsJsonObject("message")
-                        .get("content").asString
-                    saveBrain(a)
-                    appendChat("[МОЗГ] Запомнил:\n$a")
+                    try {
+                        val content = gson.fromJson(b, JsonObject::class.java)
+                            .getAsJsonArray("choices")
+                            .get(0).asJsonObject
+                            .getAsJsonObject("message")
+                            .get("content").asString
+                        saveBrain(content)
+                        appendChat("[МОЗГ] Запомнил:\n$content")
+                    } catch (e: Exception) {
+                        appendChat("[МОЗГ] Ошибка парсинга: ${e.message}")
+                    }
                 } else { 
                     appendChat("[МОЗГ] Ошибка HTTP ${response.code}")
                 }
@@ -1008,6 +1021,7 @@ class MainActivity : AppCompatActivity() {
         checkConnection()
     }
 
+    // ===== ИСПРАВЛЕННЫЙ МЕТОД checkConnection =====
     private fun checkConnection() {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) {
@@ -1017,20 +1031,25 @@ class MainActivity : AppCompatActivity() {
             }
             return
         }
+        
         val testBody = JsonObject().apply {
             addProperty("model", textModel())
-            add("messages", JsonArray().apply {
+            val messagesArray = JsonArray().apply {
                 add(JsonObject().apply {
                     addProperty("role", "user")
                     addProperty("content", "ping")
                 })
-            })
+            }
+            add("messages", messagesArray)
             addProperty("max_tokens", 1)
         }
-        val request = Request.Builder().url(currentApiUrl)
+        
+        val request = Request.Builder()
+            .url(currentApiUrl)
             .header("Authorization", "Bearer $token")
             .post(testBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
+            
         cloudClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
@@ -1192,6 +1211,7 @@ class MainActivity : AppCompatActivity() {
         } 
     }
 
+    // ===== ИСПРАВЛЕННЫЙ МЕТОД analyzePhoto =====
     private fun analyzePhoto(bitmap: Bitmap) {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) {
@@ -1205,7 +1225,7 @@ class MainActivity : AppCompatActivity() {
         
         val body = JsonObject().apply {
             addProperty("model", visionModel())
-            add("messages", JsonArray().apply {
+            val messagesArray = JsonArray().apply {
                 add(JsonObject().apply {
                     addProperty("role", "system")
                     addProperty("content", "Опиши, что на этом фото. Кратко, по-русски.")
@@ -1214,15 +1234,18 @@ class MainActivity : AppCompatActivity() {
                     addProperty("role", "user")
                     addProperty("content", "data:image/jpeg;base64,$base64")
                 })
-            })
+            }
+            add("messages", messagesArray)
             addProperty("temperature", temperature.toDouble())
             addProperty("max_tokens", maxTokens)
         }
+        
         val request = Request.Builder()
             .url(currentApiUrl)
             .header("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
+            
         cloudClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 appendChat("[АНАЛИЗ] Ошибка: ${e.message}")
@@ -1231,14 +1254,21 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) {
                 val b = response.body?.string() ?: ""
                 if (response.isSuccessful) {
-                    val a = gson.fromJson(b, JsonObject::class.java)
-                        .getAsJsonArray("choices")
-                        .get(0).asJsonObject
-                        .getAsJsonObject("message")
-                        .get("content").asString
-                    runOnUiThread {
-                        appendChat("[АНАЛИЗ] $a")
-                        setStatus("Онлайн", "green")
+                    try {
+                        val content = gson.fromJson(b, JsonObject::class.java)
+                            .getAsJsonArray("choices")
+                            .get(0).asJsonObject
+                            .getAsJsonObject("message")
+                            .get("content").asString
+                        runOnUiThread {
+                            appendChat("[АНАЛИЗ] $content")
+                            setStatus("Онлайн", "green")
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            appendChat("[АНАЛИЗ] Ошибка парсинга: ${e.message}")
+                            setStatus("Ошибка", "red")
+                        }
                     }
                 } else {
                     runOnUiThread {
@@ -1299,20 +1329,25 @@ class MainActivity : AppCompatActivity() {
     private fun checkToken() {
         val token = tokenInput.text.toString().trim()
         if (token.isEmpty()) return
+        
         val body = JsonObject().apply {
             addProperty("model", textModel())
-            add("messages", JsonArray().apply { 
+            val messagesArray = JsonArray().apply { 
                 add(JsonObject().apply { 
                     addProperty("role", "user")
                     addProperty("content", "ping")
                 })
-            })
+            }
+            add("messages", messagesArray)
             addProperty("max_tokens", 1)
         }
-        val request = Request.Builder().url(currentApiUrl)
+        
+        val request = Request.Builder()
+            .url(currentApiUrl)
             .header("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
+            
         cloudClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { 
                 appendChat("[ERROR] ${e.message}")
@@ -1371,11 +1406,13 @@ class MainActivity : AppCompatActivity() {
         sendToCloud(msg, prompt)
     }
     
+    // ===== ИСПРАВЛЕННЫЙ МЕТОД sendToCloud =====
     private fun sendToCloud(msg: String, prompt: String) {
         val token = tokenInput.text.toString().trim()
+        
         val body = JsonObject().apply {
             addProperty("model", if (currentApiUrl == apiUrlGigaChat) modelGigaChat else modelCloud)
-            add("messages", JsonArray().apply {
+            val messagesArray = JsonArray().apply {
                 add(JsonObject().apply { 
                     addProperty("role", "system")
                     addProperty("content", prompt)
@@ -1384,14 +1421,18 @@ class MainActivity : AppCompatActivity() {
                     addProperty("role", "user")
                     addProperty("content", msg)
                 })
-            })
+            }
+            add("messages", messagesArray)
             addProperty("temperature", temperature.toDouble())
             addProperty("max_tokens", maxTokens)
         }
-        val request = Request.Builder().url(currentApiUrl)
+        
+        val request = Request.Builder()
+            .url(currentApiUrl)
             .header("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
+            
         cloudClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { 
                 appendChat("[ERROR] ${e.message}")
@@ -1401,20 +1442,26 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) {
                 val b = response.body?.string() ?: ""
                 if (response.isSuccessful) {
-                    val a = gson.fromJson(b, JsonObject::class.java)
-                        .getAsJsonArray("choices")
-                        .get(0).asJsonObject
-                        .getAsJsonObject("message")
-                        .get("content").asString
-                    val label = when (currentApiUrl) { 
-                        apiUrlGigaChat -> "[GigaChat]" 
-                        else -> "[Облачный ИИ]" 
+                    try {
+                        val content = gson.fromJson(b, JsonObject::class.java)
+                            .getAsJsonArray("choices")
+                            .get(0).asJsonObject
+                            .getAsJsonObject("message")
+                            .get("content").asString
+                        val label = when (currentApiUrl) { 
+                            apiUrlGigaChat -> "[GigaChat]" 
+                            else -> "[Облачный ИИ]" 
+                        }
+                        val responseText = if (isNeoMode) "[NEO] $content" else "$label $content"
+                        appendChat(responseText)
+                        speakText(content)
+                        matrixHeader.connectionLost = false
+                        setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                    } catch (e: Exception) {
+                        appendChat("[ERROR] Ошибка парсинга: ${e.message}")
+                        matrixHeader.connectionLost = true
+                        setStatus("Ошибка", "red")
                     }
-                    val responseText = if (isNeoMode) "[NEO] $a" else "$label $a"
-                    appendChat(responseText)
-                    speakText(a)
-                    matrixHeader.connectionLost = false
-                    setStatus("Онлайн", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
                 } else { 
                     appendChat("[ERROR] HTTP ${response.code}")
                     matrixHeader.connectionLost = true
