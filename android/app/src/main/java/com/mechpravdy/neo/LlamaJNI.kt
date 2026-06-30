@@ -62,14 +62,14 @@ object LlamaJNI {
         }
 
         return try {
-            // Создаём параметры для initContext
+            // ИСПРАВЛЕНО: Отключаем падение по GPU слоям, переводим Gemma 2 на CPU
             val params = Arguments.createMap().apply {
                 putString("model", modelPath)
                 putBoolean("use_mlock", true)
                 putBoolean("embedding", false)
                 putInt("n_ctx", nCtx)
-                putInt("n_gpu_layers", 99)
-                putBoolean("no_gpu_devices", false)
+                putInt("n_gpu_layers", 0)        // ← CPU только
+                putBoolean("no_gpu_devices", true) // ← GPU отключён
             }
 
             // Вызываем initContext
@@ -108,15 +108,15 @@ object LlamaJNI {
                 return "Ошибка: модель занята"
             }
 
-            // Создаём параметры для completion
+            // ИСПРАВЛЕНО: Оптимальные параметры пакетов под 6 ГБ ОЗУ
             val params = Arguments.createMap().apply {
                 putString("prompt", prompt)
                 putInt("n_predict", maxTokens)
                 putDouble("temperature", 0.7)
                 putDouble("top_p", 0.9)
                 putInt("top_k", 40)
-                putInt("n_threads", 4)
-                putInt("n_batch", 512)
+                putInt("n_threads", 4)      // ← ровно 4 производительных ядра
+                putInt("n_batch", 128)      // ← урезаем до 128 для разгрузки шины памяти
                 putBoolean("emit_partial_completion", false)
             }
 
