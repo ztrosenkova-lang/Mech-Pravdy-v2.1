@@ -41,7 +41,7 @@ class BrainOverlayService : Service() {
             Thread {
                 try {
                     // Передаем два параметра: путь и размер контекста 2048
-                    val ok = LlamaJNI.loadModel(modelPath,4096)
+                    val ok = LlamaJNI.loadModel(this,modelPath,4096)
                     handler.post {
                         floatingView?.text = if (ok) "НЕО: ГОТОВ" else "НЕО: ОШИБКА"
                     }
