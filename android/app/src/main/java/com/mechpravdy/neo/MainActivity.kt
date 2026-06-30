@@ -630,7 +630,8 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Скачать") { _, _ ->
                 val url = input.text.toString().trim()
                 if (url.isNotBlank()) {
-                    downloadModelFromUrl(url) // ИСПРАВЛЕНО: передаем введенный URL вместо хардкода
+                    // ПЕРЕДАЕМ ТОЛЬКО ВВЕДЕННУЮ ПЕРЕМЕННУЮ URL И БОЛЬШЕ НИЧЕГО!
+                    downloadModelFromUrl(url)
                 } else {
                     appendChat("[СИСТЕМА] URL не может быть пустым")
                 }
