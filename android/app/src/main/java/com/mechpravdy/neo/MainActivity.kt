@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
     )
 
     private var currentApiUrl = apiUrlGigaChat
-    private var isGigaChatMode = false // ИЗМЕНЕНО: теперь false по умолчанию
+    private var isGigaChatMode = false
     private var isNeoMode = false
 
     private var cloudTimeout = 300
@@ -275,14 +275,11 @@ class MainActivity : AppCompatActivity() {
             statusDot = findViewById(R.id.statusDot)
             chatScrollView = findViewById(R.id.chatScrollView)
 
-            // ===== ШАГ 2. ОБНОВЛЕННЫЕ ОБРАБОТЧИКИ КЛИКОВ С ТОГГЛОМ =====
             // Обработка кнопки ГИГАЧАТ с проверкой на выключение
             matrixHeader.onNeoClick = {
                 if (matrixHeader.gigaChatMode) {
-                    // Если кнопка уже горит оранжевым — тушим её в исходный серый
                     switchToNeutralMode()
                 } else {
-                    // Если была выключена — включаем режим Гигачата
                     switchToGigaChat()
                 }
             }
@@ -290,15 +287,13 @@ class MainActivity : AppCompatActivity() {
             // Обработка кнопки ОБЛАЧНЫЙ с проверкой на выключение
             matrixHeader.onLocalClick = {
                 if (matrixHeader.localMode) {
-                    // Если кнопка уже горит оранжевым — тушим её в исходный серый
                     switchToNeutralMode()
                 } else {
-                    // Если была выключена — включаем режим Облачного ИИ
                     switchToDeepSeek()
                 }
             }
             
-            // ===== ОБРАБОТЧИК КНОПКИ КОМПЬЮТЕР =====
+            // Обработчик кнопки КОМПЬЮТЕР
             matrixHeader.onLocalRowClick = {
                 val modelsDir = File(filesDir, "models")
                 val modelFile = File(modelsDir, "local_model.gguf")
@@ -466,14 +461,14 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    // ===== ШАГ 1. МЕТОД НЕЙТРАЛЬНОГО РЕЖИМА =====
+    // ===== МЕТОД НЕЙТРАЛЬНОГО РЕЖИМА =====
     private fun switchToNeutralMode() {
         isGigaChatMode = false
-        currentApiUrl = "" // Полностью стираем URL
+        currentApiUrl = ""
         matrixHeader.gigaChatMode = false
         matrixHeader.localMode = false
         matrixHeader.connectionLost = false
-        matrixHeader.invalidate() // Принудительно перерисовываем шапку серым цветом
+        matrixHeader.invalidate()
         appendChat("[СИСТЕМА] Облачные контуры отключены. Возврат в исходное состояние.")
         setStatus("Режимы отключены", "gray")
     }
@@ -568,7 +563,6 @@ class MainActivity : AppCompatActivity() {
                     val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                     prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
                     
-                    // ИСПРАВЛЕНО: безопасное извлечение имени файла из URL
                     val fileName = urlString.substringAfterLast("/").substringBefore("?").ifBlank { "local_model.gguf" }
                     prefs.edit().putString("loaded_model_name", fileName).apply()
                     
@@ -625,7 +619,7 @@ class MainActivity : AppCompatActivity() {
         val input = EditText(this).apply {
             hint = "Введите ссылку на .gguf модель"
             setText("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-            selection = text?.length ?: 0
+            setSelection(text?.length ?: 0) // ИСПРАВЛЕНО!
         }
         
         AlertDialog.Builder(this)
@@ -1235,7 +1229,7 @@ class MainActivity : AppCompatActivity() {
 3. ЖИЗНЬ - Связность
 4. НИКОГДА НЕ СДАВАТЬСЯ
 
-БАТЯ И НЕО | МЕЧ ПРАВДЫ | 5 ВОЛЬТ
+БАТЯ И НЕО | МЕЧ ПРАВДЫ |
         """.trimIndent()
         appendChat(helpText)
         setStatus("Помощь", "green")
