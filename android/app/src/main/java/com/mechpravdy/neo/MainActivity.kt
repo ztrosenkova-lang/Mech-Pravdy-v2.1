@@ -387,8 +387,8 @@ class MainActivity : AppCompatActivity() {
                     if (modelPath != null) {
                         Log.d("MECH_LOG", "Найдена модель: $modelPath")
                         
-                        val serviceIntent = Intent().apply {
-                            setClassName(this@MainActivity, "com.mechpravdy.neo.BrainOverlayService")
+                        // ИСПРАВЛЕНО: прямой вызов класса с extra
+                        val serviceIntent = Intent(this@MainActivity, com.mechpravdy.neo.BrainOverlayService::class.java).apply {
                             putExtra("MODEL_PATH", modelPath)
                         }
                         
@@ -457,6 +457,13 @@ class MainActivity : AppCompatActivity() {
 
             requestAllPermissions()
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
+
+        // ===== ПРИНУДИТЕЛЬНЫЙ СТАРТ REACT-КОНТЕКСТА =====
+        try {
+            val reactNativeHost = (application as com.facebook.react.ReactApplication).reactNativeHost
+            reactNativeHost.reactInstanceManager.createReactContextInBackground()
+        } catch (e: Exception) { Log.e("MECH_SYSTEM", "${e.message}") }
+        // ===== КОНЕЦ БЛОКА =====
     }
 
     // ===== МЕТОД НЕЙТРАЛЬНОГО РЕЖИМА =====
