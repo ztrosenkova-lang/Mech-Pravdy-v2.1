@@ -43,7 +43,6 @@
         <!-- ===== ИЗОЛИРОВАННЫЙ СЕРВИС МОЗГА ===== -->
         <service
             android:name=".BrainOverlayService"
-            android:process=":brain_process"
             android:enabled="true"
             android:exported="false" />
 
