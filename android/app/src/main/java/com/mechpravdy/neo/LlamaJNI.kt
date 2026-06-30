@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
 import java.io.File
 import kotlin.coroutines.resume
@@ -64,29 +65,40 @@ object LlamaJNI {
 
         return try {
             // ИСПРАВЛЕНО: Отключаем падение по GPU слоям, переводим Gemma 2 на CPU
+            // ИСПРАВЛЕНО: use_mlock = false для предотвращения убийства процесса менеджером памяти
             val params = Arguments.createMap().apply {
                 putString("model", modelPath)
-                putBoolean("use_mlock", true)
+                putBoolean("use_mlock", false)              // ← ИСПРАВЛЕНО: отключаем блокировку памяти
                 putBoolean("embedding", false)
-                putInt("n_ctx", contextSize)        // ← ИСПРАВЛЕНО: теперь будет работать и 4096, и авто-ноль!
-                putInt("n_gpu_layers", 0)            // ← CPU только
-                putBoolean("no_gpu_devices", true)   // ← GPU отключён
+                putBoolean("use_mmap", true)
+                putInt("n_ctx", contextSize)                // ← ИСПРАВЛЕНО: теперь будет работать и 4096, и авто-ноль!
+                putInt("n_gpu_layers", 0)                   // ← CPU только
+                putBoolean("no_gpu_devices", true)          // ← GPU отключён
             }
 
             // Передаём androidContext в инициализатор PocketPal через params
             // (нативная сторона получит контекст через ReactContext)
             val result = initContext(params, null)
             
-            // Получаем указатель на контекст — кастуем к ReadableMap
-            val ctxStr = (result as? com.facebook.react.bridge.ReadableMap)?.getString("context")
-            if (ctxStr.isNullOrEmpty()) {
-                Log.e(TAG, "❌ Failed to get context pointer")
-                return false
+            // ИСПРАВЛЕНО: Безопасный разбор без жесткого ClassCastException к ReadableMap
+            val contextId = try {
+                if (result.hasKey("context")) {
+                    // Проверяем тип данных (в PocketPal это может быть либо Double, либо String)
+                    when (result.getType("context")) {
+                        ReadableType.Number -> result.getDouble("context").toLong()
+                        ReadableType.String -> result.getString("context")?.toLongOrNull() ?: 0L
+                        else -> 0L
+                    }
+                } else 0L
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Ошибка парсинга указателя контекста: ${e.message}")
+                0L
             }
 
-            contextPtr = ctxStr.toLongOrNull() ?: 0L
+            contextPtr = contextId
+
             if (contextPtr == 0L) {
-                Log.e(TAG, "❌ Invalid context pointer")
+                Log.e(TAG, "❌ Invalid context pointer (Указатель равен 0)")
                 return false
             }
 
@@ -125,8 +137,19 @@ object LlamaJNI {
             // Вызываем doCompletion
             val result = doCompletion(contextPtr, params, null)
             
-            // Получаем текст ответа — кастуем к ReadableMap
-            val text = (result as? com.facebook.react.bridge.ReadableMap)?.getString("text")
+            // Получаем текст ответа — безопасный парсинг
+            val text = try {
+                if (result.hasKey("text")) {
+                    when (result.getType("text")) {
+                        ReadableType.String -> result.getString("text")
+                        else -> null
+                    }
+                } else null
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Ошибка парсинга ответа: ${e.message}")
+                null
+            }
+
             if (text.isNullOrEmpty()) {
                 "(пустой ответ)"
             } else {
