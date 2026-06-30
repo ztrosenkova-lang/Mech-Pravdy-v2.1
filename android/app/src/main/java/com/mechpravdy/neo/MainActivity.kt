@@ -615,11 +615,12 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
     
+    // ===== ИСПРАВЛЕННЫЙ МЕТОД showDownloadDialog() =====
     private fun showDownloadDialog() {
         val input = EditText(this).apply {
             hint = "Введите ссылку на .gguf модель"
             setText("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-            setSelection(text?.length ?: 0) // ИСПРАВЛЕНО!
+            setSelection(text?.length ?: 0)
         }
         
         AlertDialog.Builder(this)
@@ -629,7 +630,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Скачать") { _, _ ->
                 val url = input.text.toString().trim()
                 if (url.isNotBlank()) {
-                    downloadModelFromUrl(url)
+                    downloadModelFromUrl(url) // ИСПРАВЛЕНО: передаем введенный URL вместо хардкода
                 } else {
                     appendChat("[СИСТЕМА] URL не может быть пустым")
                 }
@@ -858,8 +859,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         val temperatureSeekBar = SeekBar(this).apply {
-            max = 140
-            progress = (temperature * 100).toInt()
+            max = 140            progress = (temperature * 100).toInt()
         }
         val temperatureText = TextView(this).apply {
             text = "Температура: $temperature"
