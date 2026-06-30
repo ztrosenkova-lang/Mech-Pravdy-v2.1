@@ -6,12 +6,16 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
+import com.facebook.react.bridge.WritableNativeMap
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 object LlamaJNI {
+    // Хранилище живого контекста React Native моста
+    var reactContext: com.facebook.react.bridge.ReactContext? = null
+
     private const val TAG = "LlamaJNI"
     private var contextPtr: Long = 0L
     private var isLibraryLoaded = false
@@ -64,9 +68,19 @@ object LlamaJNI {
         }
 
         return try {
+            // Сохраняем контекст в глобальную переменную для использования в нативных методах
+            if (androidContext is com.facebook.react.bridge.ReactContext) {
+                reactContext = androidContext
+                Log.d(TAG, "✅ ReactContext сохранён")
+            } else {
+                Log.w(TAG, "⚠️ Передан не ReactContext, использование может быть ограничено")
+                reactContext = null
+            }
+
             // ИСПРАВЛЕНО: Отключаем падение по GPU слоям, переводим Gemma 2 на CPU
             // ИСПРАВЛЕНО: use_mlock = false для предотвращения убийства процесса менеджером памяти
-            val params = Arguments.createMap().apply {
+            // ИСПРАВЛЕНО: используем WritableNativeMap вместо Arguments.createMap()
+            val params = WritableNativeMap().apply {
                 putString("model", modelPath)
                 putBoolean("use_mlock", false)              // ← ИСПРАВЛЕНО: отключаем блокировку памяти
                 putBoolean("embedding", false)
@@ -123,7 +137,8 @@ object LlamaJNI {
             }
 
             // ИСПРАВЛЕНО: Оптимальные параметры пакетов под 6 ГБ ОЗУ
-            val params = Arguments.createMap().apply {
+            // ИСПРАВЛЕНО: используем WritableNativeMap вместо Arguments.createMap()
+            val params = WritableNativeMap().apply {
                 putString("prompt", prompt)
                 putInt("n_predict", maxTokens)
                 putDouble("temperature", 0.7)
@@ -171,6 +186,8 @@ object LlamaJNI {
                 isModelLoaded = false
                 Log.d(TAG, "✅ Model unloaded")
             }
+            // Очищаем ReactContext при выгрузке модели
+            reactContext = null
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error unloading model: ${e.message}")
         }
