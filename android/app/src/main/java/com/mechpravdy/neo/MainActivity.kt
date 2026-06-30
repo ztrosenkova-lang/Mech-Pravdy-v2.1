@@ -1229,7 +1229,7 @@ class MainActivity : AppCompatActivity() {
 3. ЖИЗНЬ - Связность
 4. НИКОГДА НЕ СДАВАТЬСЯ
 
-БАТЯ И НЕО | МЕЧ ПРАВДЫ |
+БАТЯ И НЕО | МЕЧ ПРАВДЫ | 5 ВОЛЬТ
         """.trimIndent()
         appendChat(helpText)
         setStatus("Помощь", "green")
