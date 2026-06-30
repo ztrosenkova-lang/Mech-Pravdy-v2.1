@@ -388,14 +388,13 @@ class MainActivity : AppCompatActivity() {
                     if (modelPath != null) {
                         Log.d("MECH_LOG", "Найдена модель: $modelPath")
                         
-                        val intent = Intent().apply {
-                            setClassName(this@MainActivity, "com.mechpravdy.neo.BrainFloatingWindow")
+                        val serviceIntent = Intent().apply {
+                            setClassName(this@MainActivity, "com.mechpravdy.neo.BrainOverlayService")
                             putExtra("MODEL_PATH", modelPath)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         
                         try {
-                            startActivity(intent)
+                            startService(serviceIntent)
                             
                             val brainResponseFile = File(filesDir, "brain_response.txt")
                             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
@@ -439,7 +438,7 @@ class MainActivity : AppCompatActivity() {
                         } catch (e: Exception) {
                             checkButton.text = "МОЗГ"
                             appendChat("[МОЗГ] Ошибка запуска: ${e.message}")
-                            Log.e("MECH_LOG", "Ошибка запуска BrainFloatingWindow: ${e.message}")
+                            Log.e("MECH_LOG", "Ошибка запуска BrainOverlayService: ${e.message}")
                         }
                     } else {
                         checkButton.text = "МОЗГ"
