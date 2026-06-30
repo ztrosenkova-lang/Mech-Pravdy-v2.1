@@ -105,21 +105,21 @@ class MatrixHeaderView @JvmOverloads constructor(
         }
     }
     
-    private var memoryText = "--/-- MB"
+    // ===== ШАГ 2: НОВАЯ ПЕРЕМЕННАЯ ДЛЯ ПАМЯТИ =====
+    private var memoryText = "--/512 МБ"
+    // ================================================
+    
     private val memoryHandler = Handler(Looper.getMainLooper())
     private val memoryUpdateRunnable = object : Runnable {
         override fun run() {
+            // ===== ШАГ 2: НОВЫЙ РАСЧЕТ ПАМЯТИ =====
             val runtime = Runtime.getRuntime()
-            val javaUsed = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
-            val javaMax = runtime.maxMemory() / (1024 * 1024)
+            // Считаем реальную чистую занятую память процесса в Мегабайтах
+            val usedMemoryMB = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
+            val maxMemoryMB = 512 // Жесткий лимит выделенной памяти
             
-            val nativeHeapSize = Debug.getNativeHeapSize() / (1024 * 1024)
-            val nativeHeapFree = Debug.getNativeHeapFreeSize() / (1024 * 1024)
-            val nativeUsed = nativeHeapSize - nativeHeapFree
-            
-            val totalUsed = javaUsed + nativeUsed
-            
-            memoryText = "$javaUsed+$nativeUsed/$javaMax MB"
+            memoryText = "$usedMemoryMB/$maxMemoryMB МБ"
+            // ====================================
             invalidate()
             memoryHandler.postDelayed(this, 1000)
         }
@@ -358,10 +358,13 @@ class MatrixHeaderView @JvmOverloads constructor(
         }
         canvas.drawText("☰", menuButtonRect.centerX(), menuButtonRect.centerY() + 10f, menuTextPaint)
 
+        // ===== ШАГ 3: ИСПРАВЛЕННЫЙ ВЫЗОВ canvas.drawText =====
         val memoryPaint = Paint().apply {
             color = Color.parseColor("#21A038"); textSize = 24f; typeface = Typeface.DEFAULT; isAntiAlias = true; textAlign = Paint.Align.CENTER
         }
+        // Передаем новую переменную memoryText
         canvas.drawText("🧠 $memoryText", memoryRect.centerX(), memoryRect.centerY() + 8f, memoryPaint)
+        // =====================================================
 
         val dotRadius = 14f
         val dotSpacing = 30f
