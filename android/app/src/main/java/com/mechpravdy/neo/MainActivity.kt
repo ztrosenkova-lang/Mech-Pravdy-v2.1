@@ -615,34 +615,6 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
     
-    // ===== ИСПРАВЛЕННЫЙ МЕТОД showDownloadDialog() =====
-    private fun showDownloadDialog() {
-        val input = EditText(this).apply {
-            hint = "Введите ссылку на .gguf модель"
-            setText("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-            setSelection(text?.length ?: 0)
-        }
-        
-        AlertDialog.Builder(this)
-            .setTitle("Загрузка модели")
-            .setMessage("Введите прямую ссылку на .gguf файл модели:")
-            .setView(input)
-            .setPositiveButton("Скачать") { _, _ ->
-                val url = input.text.toString().trim()
-                if (url.isNotBlank()) {
-                    // ПЕРЕДАЕМ ТОЛЬКО ВВЕДЕННУЮ ПЕРЕМЕННУЮ URL И БОЛЬШЕ НИЧЕГО!
-                    downloadModelFromUrl(url)
-                } else {
-                    appendChat("[СИСТЕМА] URL не может быть пустым")
-                }
-            }
-            .setNegativeButton("Отмена", null)
-            .setNeutralButton("Выбрать файл") { _, _ ->
-                modelFileLauncher.launch("*/*")
-            }
-            .show()
-    }
-    
     private fun switchToLocalModel() {
         val modelPath = findModelPath()
         if (modelPath != null) {
@@ -1368,6 +1340,32 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun selectPrompt(): String = if (isNeoMode) buildNeoPrompt() else buildStandardPrompt()
+
+    private fun showDownloadDialog() {
+        val input = EditText(this).apply {
+            hint = "Введите ссылку на .gguf модель"
+            setText("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf")
+            setSelection(text?.length ?: 0)
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle("Загрузка модели")
+            .setMessage("Введите прямую ссылку на .gguf файл модели:")
+            .setView(input)
+            .setPositiveButton("Скачать") { _, _ ->
+                val url = input.text.toString().trim()
+                if (url.isNotBlank()) {
+                    downloadModelFromUrl(url)
+                } else {
+                    appendChat("[СИСТЕМА] URL не может быть пустым")
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("Выбрать файл") { _, _ ->
+                modelFileLauncher.launch("*/*")
+            }
+            .show()
+    }
 
     private fun showCapsuleDialog() {
         try {
