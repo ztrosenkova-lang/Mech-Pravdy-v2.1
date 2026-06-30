@@ -1344,8 +1344,6 @@ class MainActivity : AppCompatActivity() {
     private fun showDownloadDialog() {
         val input = EditText(this).apply {
             hint = "Введите ссылку на .gguf модель"
-            setText("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-            setSelection(text?.length ?: 0)
         }
         
         AlertDialog.Builder(this)
