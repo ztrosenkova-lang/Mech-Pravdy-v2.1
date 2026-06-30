@@ -367,18 +367,17 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (checkButton.text.toString() == "ВЫКЛ МОЗГ" || checkButton.text.toString() == "ЗАГРУЗКА...") {
-                    try {
-                        val commandFile = File(filesDir, "brain_query.txt")
-                        commandFile.writeText("COMMAND_UNLOAD_MODEL")
-                        appendChat("[МОЗГ] Отправлена команда выгрузки модели.")
-                    } catch (e: Exception) {
-                        Log.e("MECH_LOG", "Ошибка отправки команды выгрузки: ${e.message}")
-                    }
-                    
-                    brainObserver?.stopWatching()
-                    brainObserver = null
+                    // Исправленный блок закрытия оверлея в MainActivity.kt
+                    isNeoMode = false
                     checkButton.text = "МОЗГ"
-                    appendChat("[МОЗГ] Локальный ИИ отключен. Модель выгружена из памяти.")
+
+                    // Вызываем стоп через прямой референс класса, без кривых setClassName строк
+                    val serviceIntent = Intent(this@MainActivity, com.mechpravdy.neo.BrainOverlayService::class.java)
+                    try {
+                        stopService(serviceIntent) // Теперь Android железно найдет и сотрет оверлей с экрана
+                    } catch (e: Exception) {
+                        Log.e("MECH_BRAIN", "Ошибка принудительной остановки: ${e.message}")
+                    }
                     switchToNeutralMode()
                 } else {
                     checkButton.text = "ЗАГРУЗКА..."
