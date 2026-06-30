@@ -859,7 +859,8 @@ class MainActivity : AppCompatActivity() {
         }
         
         val temperatureSeekBar = SeekBar(this).apply {
-            max = 140            progress = (temperature * 100).toInt()
+            max = 140
+            progress = (temperature * 100).toInt()
         }
         val temperatureText = TextView(this).apply {
             text = "Температура: $temperature"
