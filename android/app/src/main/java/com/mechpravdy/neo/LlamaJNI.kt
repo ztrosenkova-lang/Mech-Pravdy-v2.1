@@ -49,7 +49,8 @@ object LlamaJNI {
 
     fun isLoaded(): Boolean = isLibraryLoaded
 
-    fun loadModel(modelPath: String, nCtx: Int = 2048): Boolean {
+    // ИСПРАВЛЕНО: добавлен androidContext и contextSize
+    fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         if (!isLibraryLoaded) {
             Log.e(TAG, "❌ Native library not loaded")
             return false
@@ -67,12 +68,13 @@ object LlamaJNI {
                 putString("model", modelPath)
                 putBoolean("use_mlock", true)
                 putBoolean("embedding", false)
-                putInt("n_ctx", nCtx)
-                putInt("n_gpu_layers", 0)        // ← CPU только
-                putBoolean("no_gpu_devices", true) // ← GPU отключён
+                putInt("n_ctx", contextSize)        // ← ИСПРАВЛЕНО: теперь будет работать и 4096, и авто-ноль!
+                putInt("n_gpu_layers", 0)            // ← CPU только
+                putBoolean("no_gpu_devices", true)   // ← GPU отключён
             }
 
-            // Вызываем initContext
+            // Передаём androidContext в инициализатор PocketPal через params
+            // (нативная сторона получит контекст через ReactContext)
             val result = initContext(params, null)
             
             // Получаем указатель на контекст — кастуем к ReadableMap
@@ -89,7 +91,7 @@ object LlamaJNI {
             }
 
             isModelLoaded = true
-            Log.d(TAG, "✅ Model loaded: $modelPath")
+            Log.d(TAG, "✅ Model loaded: $modelPath with contextSize=$contextSize")
             true
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error loading model: ${e.message}")
