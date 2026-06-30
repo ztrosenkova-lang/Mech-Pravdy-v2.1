@@ -7,7 +7,9 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.FileObserver
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.Process
 import android.view.Gravity
 import android.view.WindowManager
@@ -15,43 +17,57 @@ import android.widget.TextView
 import java.io.File
 
 class BrainOverlayService : Service() {
+
+    companion object {
+        init {
+            System.loadLibrary("rnllama")
+        }
+    }
+
     private lateinit var windowManager: WindowManager
     private var floatingView: TextView? = null
     private var queryObserver: FileObserver? = null
+    private val handler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val path = intent?.getStringExtra("MODEL_PATH")
-        if (path != null && java.io.File(path).exists()) {
+        val modelPath = intent?.getStringExtra("MODEL_PATH")
+        if (modelPath.isNullOrEmpty() || !java.io.File(modelPath).exists() || java.io.File(modelPath).length() < 10 * 1024 * 1024) {
+            android.util.Log.e("MECH_BRAIN", "Файл модели отсутствует или поврежден!")
+            handler.post { floatingView?.text = "НЕО: БИТЫЙ ФАЙЛ" }
+        } else {
+            // ===== ЗАМЕНЕННЫЙ БЛОК Thread =====
             Thread {
                 try {
-                    val ok = LlamaJNI.loadModel(path, 2048)
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    // Передаем два параметра: путь и размер контекста 2048
+                    val ok = LlamaJNI.loadModel(modelPath, 2048)
+                    handler.post {
                         floatingView?.text = if (ok) "НЕО: ГОТОВ" else "НЕО: ОШИБКА"
                     }
-                } catch (_: Exception) {}
+                } catch (e: Throwable) { // Ловим критические краши JNI и C++ слоя
+                    handler.post { floatingView?.text = "НЕО: КРАШ ДВИЖКА" }
+                }
             }.start()
+            // ===== КОНЕЦ ЗАМЕНЕННОГО БЛОКА =====
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        // Создаем стильное бело-прозрачное окно с закругленными краями
         floatingView = TextView(this).apply {
             text = "НЕО: МОЗГ"
-            setTextColor(Color.parseColor("#1A8A2E")) // Фирменный зеленый цвет Меча
+            setTextColor(Color.parseColor("#1A8A2E"))
             setPadding(24, 16, 24, 16)
             textSize = 12f
             
-            // Нативно закругляем края и делаем бело-прозрачный фон (75% непрозрачности)
             val shape = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.parseColor("#C0FFFFFF")) // Белый цвет + альфа-канал прозрачности
-                cornerRadius = 24f // Радиус закругления краев окна
-                setStroke(2, Color.parseColor("#1A8A2E")) // Тонкая зеленая рамка по контуру
+                setColor(Color.parseColor("#C0FFFFFF"))
+                cornerRadius = 24f
+                setStroke(2, Color.parseColor("#1A8A2E"))
             }
             background = shape
         }
@@ -69,10 +85,9 @@ class BrainOverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            // Центрируем окно по горизонтали — оно встанет ровно посередине экрана
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = 0 
-            y = 120 // Высота от верха экрана, чтобы окно встало на уровне Мурзехи
+            y = 120
         }
 
         windowManager.addView(floatingView, params)
@@ -89,11 +104,14 @@ class BrainOverlayService : Service() {
                     Thread {
                         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
                         try {
+                            // ===== ИСПРАВЛЕНИЕ ГЕНЕРАЦИИ =====
+                            // Убрали число 512, метод принимает только текст
                             val aiResponse = if (LlamaJNI.isModelLoaded()) {
-                                LlamaJNI.generate(queryText, 512)
+                                LlamaJNI.generate(queryText) // ТОЛЬКО ОДИН ПАРАМЕТР!
                             } else {
                                 "[МОЗГ] Ошибка: GGUF модель не загружена в память процесса."
                             }
+                            // ===== КОНЕЦ ИСПРАВЛЕНИЯ =====
                             responseFile.writeText(aiResponse)
                         } catch (e: Exception) {
                             try { responseFile.writeText("[ОШИБКА GGUF] ${e.message}") } catch (_: Exception) {}
@@ -103,17 +121,6 @@ class BrainOverlayService : Service() {
             }
         }
         queryObserver?.startWatching()
-
-        // ДИНАМИЧЕСКАЯ ЗАГРУЗКА: C++ слой начинает грузиться ТОЛЬКО СЕЙЧАС,
-        // когда сервис уже успешно запущен кнопкой, полностью изолированно от Меча!
-        Thread {
-            try {
-                System.loadLibrary("llama")
-                android.util.Log.d("MECH_BRAIN", "libllama.so успешно загружена в фоне процесса.")
-            } catch (e: UnsatisfiedLinkError) {
-                android.util.Log.e("MECH_BRAIN", "Ошибка отложенной линковки JNI: ${e.message}")
-            }
-        }.start()
     }
 
     override fun onDestroy() {
@@ -121,7 +128,6 @@ class BrainOverlayService : Service() {
         queryObserver?.stopWatching()
         floatingView?.let { windowManager.removeView(it) }
         
-        // ВЫГРУЗКА ИЗ ПАМЯТИ: Полностью очищаем ОЗУ при выключении кнопки
         try {
             LlamaJNI.unloadModel()
         } catch (_: Exception) {}
