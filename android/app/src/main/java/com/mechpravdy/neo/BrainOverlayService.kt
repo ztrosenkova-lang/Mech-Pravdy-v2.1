@@ -33,24 +33,40 @@ class BrainOverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val modelPath = intent?.getStringExtra("MODEL_PATH")
-        if (modelPath.isNullOrEmpty() || !java.io.File(modelPath).exists() || java.io.File(modelPath).length() < 10 * 1024 * 1024) {
-            android.util.Log.e("MECH_BRAIN", "Файл модели отсутствует или поврежден!")
-            handler.post { floatingView?.text = "НЕО: БИТЫЙ ФАЙЛ" }
-        } else {
-            // ===== ЗАМЕНЕННЫЙ БЛОК Thread =====
-            Thread {
-                try {
-                    // Передаем два параметра: путь и размер контекста 2048
-                    val ok = LlamaJNI.loadModel(this,modelPath,4096)
-                    handler.post {
-                        floatingView?.text = if (ok) "НЕО: ГОТОВ" else "НЕО: ОШИБКА"
-                    }
-                } catch (e: Throwable) { // Ловим критические краши JNI и C++ слоя
-                    handler.post { floatingView?.text = "НЕО: КРАШ ДВИЖКА" }
-                }
-            }.start()
-            // ===== КОНЕЦ ЗАМЕНЕННОГО БЛОКА =====
+        val file = modelPath?.let { java.io.File(it) }
+
+        // 1. ПРОВЕРКА НАЛИЧИЯ И ДОСТУПА К ФАЙЛУ
+        if (modelPath.isNullOrEmpty() || file == null || !file.exists() || file.length() < 10 * 1024 * 1024) {
+            android.util.Log.e("MECH_BRAIN", "Файл модели отсутствует или поврежден: $modelPath")
+            handler.post { floatingView?.text = "НЕО: НЕТ ФАЙЛА" }
+            return START_STICKY
         }
+
+        // Проверяем, может ли приложение физически прочитать этот файл с диска
+        if (!file.canRead()) {
+            android.util.Log.e("MECH_BRAIN", "Ошибка доступа! Файл не может быть прочитан: $modelPath")
+            handler.post { floatingView?.text = "НЕО: ОШИБКА ДОСТУПА" }
+            return START_STICKY
+        }
+
+        // 2. ВЫВОД СТАТУСА НАЧАЛА ЗАГРУЗКИ ВЕСОВ
+        // Как только проверка пройдена, на экране мгновенно загорится этот статус
+        handler.post { floatingView?.text = "НЕО: ЗАГРУЗКА..." }
+
+        // 3. ЗАПУСК НА ТИВНОГО C++ ДВИЖКА В ФОНЕ
+        Thread {
+            try {
+                // Передаем контекст (this), путь к файлу и размер контекста 4096
+                val ok = LlamaJNI.loadModel(this, modelPath, 4096)
+                handler.post {
+                    floatingView?.text = if (ok) "НЕО: ГОТОВ" else "НЕО: ОШИБКА ДВИЖКА"
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("MECH_BRAIN", "Критический краш при чтении весов: ${e.message}")
+                handler.post { floatingView?.text = "НЕО: КРАШ ДВИЖКА" }
+            }
+        }.start()
+
         return START_STICKY
     }
 
