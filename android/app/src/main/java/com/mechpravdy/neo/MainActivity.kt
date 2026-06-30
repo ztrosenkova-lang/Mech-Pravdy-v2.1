@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
     )
 
     private var currentApiUrl = apiUrlGigaChat
-    private var isGigaChatMode = true
+    private var isGigaChatMode = false // ИЗМЕНЕНО: теперь false по умолчанию
     private var isNeoMode = false
 
     private var cloudTimeout = 300
@@ -105,8 +105,7 @@ class MainActivity : AppCompatActivity() {
     private var brainObserver: android.os.FileObserver? = null
     private var isSelfModification = false
     
-    // ===== ЧАСТЬ 1. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====
-    private var isDownloadingModel = false // Защита от параллельных потоков скачивания
+    private var isDownloadingModel = false
 
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -276,31 +275,47 @@ class MainActivity : AppCompatActivity() {
             statusDot = findViewById(R.id.statusDot)
             chatScrollView = findViewById(R.id.chatScrollView)
 
-            matrixHeader.onNeoClick = { switchToGigaChat() }
-            matrixHeader.onLocalClick = { switchToDeepSeek() }
+            // ===== ШАГ 2. ОБНОВЛЕННЫЕ ОБРАБОТЧИКИ КЛИКОВ С ТОГГЛОМ =====
+            // Обработка кнопки ГИГАЧАТ с проверкой на выключение
+            matrixHeader.onNeoClick = {
+                if (matrixHeader.gigaChatMode) {
+                    // Если кнопка уже горит оранжевым — тушим её в исходный серый
+                    switchToNeutralMode()
+                } else {
+                    // Если была выключена — включаем режим Гигачата
+                    switchToGigaChat()
+                }
+            }
+
+            // Обработка кнопки ОБЛАЧНЫЙ с проверкой на выключение
+            matrixHeader.onLocalClick = {
+                if (matrixHeader.localMode) {
+                    // Если кнопка уже горит оранжевым — тушим её в исходный серый
+                    switchToNeutralMode()
+                } else {
+                    // Если была выключена — включаем режим Облачного ИИ
+                    switchToDeepSeek()
+                }
+            }
             
-            // ===== ЧАСТЬ 2. ИНИЦИАЛИЗАЦИЯ СЛУШАТЕЛЯ onLocalRowClick =====
+            // ===== ОБРАБОТЧИК КНОПКИ КОМПЬЮТЕР =====
             matrixHeader.onLocalRowClick = {
                 val modelsDir = File(filesDir, "models")
                 val modelFile = File(modelsDir, "local_model.gguf")
                 
                 if (modelFile.exists()) {
-                    // Модель уже есть - сообщаем пользователю
-                    val modelSize = modelFile.length() / (1024 * 1024) // Размер в МБ
+                    val modelSize = modelFile.length() / (1024 * 1024)
                     appendChat("[СИСТЕМА] Модель уже загружена в песочницу. Размер: ${modelSize} МБ")
                     appendChat("[СИСТЕМА] Путь: ${modelFile.absolutePath}")
                     setStatus("Модель готова", "green")
                     
-                    // Сохраняем путь в настройки
                     val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                     prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
                     
-                    // Если модель уже загружена, предложим использовать
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Модель найдена")
                         .setMessage("Модель уже загружена (${modelSize} МБ). Хотите использовать её для локального ИИ?")
                         .setPositiveButton("Использовать") { _, _ ->
-                            // Переключаемся на локальный режим
                             switchToLocalModel()
                         }
                         .setNegativeButton("Заменить") { _, _ ->
@@ -309,7 +324,6 @@ class MainActivity : AppCompatActivity() {
                         .setNeutralButton("Отмена", null)
                         .show()
                 } else {
-                    // Модели нет - показываем диалог загрузки
                     showDownloadDialog()
                 }
             }
@@ -370,7 +384,7 @@ class MainActivity : AppCompatActivity() {
                     brainObserver = null
                     checkButton.text = "МОЗГ"
                     appendChat("[МОЗГ] Локальный ИИ отключен. Модель выгружена из памяти.")
-                    switchToGigaChat()
+                    switchToNeutralMode()
                 } else {
                     checkButton.text = "ЗАГРУЗКА..."
                     setStatus("Запуск процесса...", "yellow")
@@ -452,9 +466,20 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    // ===== ЧАСТЬ 3. ВСТРОЕННЫЙ ПОТОКОВЫЙ ЗАГРУЗЧИК =====
+    // ===== ШАГ 1. МЕТОД НЕЙТРАЛЬНОГО РЕЖИМА =====
+    private fun switchToNeutralMode() {
+        isGigaChatMode = false
+        currentApiUrl = "" // Полностью стираем URL
+        matrixHeader.gigaChatMode = false
+        matrixHeader.localMode = false
+        matrixHeader.connectionLost = false
+        matrixHeader.invalidate() // Принудительно перерисовываем шапку серым цветом
+        appendChat("[СИСТЕМА] Облачные контуры отключены. Возврат в исходное состояние.")
+        setStatus("Режимы отключены", "gray")
+    }
+
+    // ===== МЕТОДЫ ЗАГРУЗКИ МОДЕЛИ =====
     private fun downloadModelFromUrl(urlString: String) {
-        // 1. Проверка флага isDownloadingModel
         if (isDownloadingModel) {
             appendChat("[ЗАГРУЗКА] Загрузка уже выполняется. Подождите...")
             return
@@ -469,24 +494,19 @@ class MainActivity : AppCompatActivity() {
         setStatus("Скачивание модели...", "yellow")
         appendChat("[ЗАГРУЗКА] Начинаем скачивание модели...")
         
-        // 2. Использование Thread для скачивания
         Thread {
             var inputStream: InputStream? = null
             var outputStream: FileOutputStream? = null
             
             try {
-                // Создаем папку models если её нет
                 val modelsDir = File(filesDir, "models")
                 if (!modelsDir.exists()) {
                     modelsDir.mkdirs()
                 }
                 
                 val modelFile = File(modelsDir, "local_model.gguf")
-                
-                // Создаем временный файл для атомарной замены
                 val tempFile = File(modelsDir, "local_model.temp")
                 
-                // 3. OkHttp запрос + .byteStream() + FileOutputStream
                 val request = Request.Builder()
                     .url(urlString)
                     .header("User-Agent", "MechPravdy/1.0")
@@ -516,17 +536,14 @@ class MainActivity : AppCompatActivity() {
                 
                 outputStream = FileOutputStream(tempFile)
                 
-                // Буфер для потоковой записи
                 val buffer = ByteArray(8192)
                 var bytesRead: Int
                 var totalBytes = 0L
                 
-                // Читаем и записываем по частям
                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                     outputStream.write(buffer, 0, bytesRead)
                     totalBytes += bytesRead
                     
-                    // Обновляем статус каждые 2 МБ
                     if (totalBytes % (2 * 1024 * 1024) < 8192) {
                         val sizeMB = totalBytes / (1024 * 1024)
                         runOnUiThread {
@@ -540,9 +557,7 @@ class MainActivity : AppCompatActivity() {
                 inputStream.close()
                 response.close()
                 
-                // Перемещаем временный файл в основной
                 if (tempFile.exists() && tempFile.length() > 0) {
-                    // Удаляем старый файл если есть
                     if (modelFile.exists()) {
                         modelFile.delete()
                     }
@@ -550,12 +565,11 @@ class MainActivity : AppCompatActivity() {
                     
                     val sizeMB = modelFile.length() / (1024 * 1024)
                     
-                    // Сохраняем имя модели в SharedPreferences
                     val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                     prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
                     
-                    // Извлекаем имя файла из URL
-                    val fileName = urlString.substringAfterLast("/")
+                    // ИСПРАВЛЕНО: безопасное извлечение имени файла из URL
+                    val fileName = urlString.substringAfterLast("/").substringBefore("?").ifBlank { "local_model.gguf" }
                     prefs.edit().putString("loaded_model_name", fileName).apply()
                     
                     runOnUiThread {
@@ -565,12 +579,10 @@ class MainActivity : AppCompatActivity() {
                         appendChat("[ЗАГРУЗКА] Путь: ${modelFile.absolutePath}")
                         setStatus("Модель загружена", "green")
                         
-                        // Предлагаем запустить локальный ИИ
                         AlertDialog.Builder(this@MainActivity)
                             .setTitle("Модель загружена")
                             .setMessage("Модель успешно загружена (${sizeMB} МБ). Запустить локальный ИИ?")
                             .setPositiveButton("Запустить") { _, _ ->
-                                // Имитируем нажатие кнопки МОЗГ
                                 checkButton.performClick()
                             }
                             .setNegativeButton("Позже", null)
@@ -590,7 +602,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 Log.e("MECH_DOWNLOAD", "Ошибка загрузки модели: ${e.message}")
             } finally {
-                // 6. Сброс флага isDownloadingModel
                 isDownloadingModel = false
                 
                 try {
@@ -600,7 +611,6 @@ class MainActivity : AppCompatActivity() {
                     outputStream?.close()
                 } catch (_: Exception) {}
                 
-                // Удаляем временный файл если есть
                 try {
                     val tempFile = File(filesDir, "models/local_model.temp")
                     if (tempFile.exists()) {
@@ -641,11 +651,9 @@ class MainActivity : AppCompatActivity() {
         val modelPath = findModelPath()
         if (modelPath != null) {
             appendChat("[СИСТЕМА] Переключение на локальную модель...")
-            // Сохраняем путь и переключаем режим
             val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
             prefs.edit().putString("local_model_path", modelPath).apply()
             
-            // Если кнопка МОЗГ не активна, активируем её
             if (checkButton.text.toString() != "ВЫКЛ МОЗГ" && checkButton.text.toString() != "ЗАГРУЗКА...") {
                 checkButton.performClick()
             } else {
@@ -1324,6 +1332,7 @@ class MainActivity : AppCompatActivity() {
                     "yellow" -> R.drawable.status_dot_yellow
                     "red" -> R.drawable.status_dot_red
                     "blue" -> R.drawable.status_dot_green
+                    "gray" -> R.drawable.status_dot_gray
                     else -> R.drawable.status_dot_gray
                 }
             )
