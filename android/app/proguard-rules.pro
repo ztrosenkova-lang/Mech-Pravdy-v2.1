@@ -39,3 +39,12 @@
 
 # Сохраняем системные аннотации, необходимые для работы JNI и JS-мостов
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+
+# ==============================================================================
+# ЗАЩИТА ИЗОЛИРОВАННОГО СЕРВИСА МОЗГА (ДОБАВИТЬ ОБЯЗАТЕЛЬНО)
+# ==============================================================================
+
+# Запрещаем оптимизатору R8 трогать и переименовывать фоновую службу оверлея
+-keep class com.mechpravdy.neo.BrainOverlayService { *; }
+-keepclassmembers class com.mechpravdy.neo.BrainOverlayService { *; }
+
