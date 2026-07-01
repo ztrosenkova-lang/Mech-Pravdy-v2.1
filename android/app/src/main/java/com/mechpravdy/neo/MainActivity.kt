@@ -732,16 +732,8 @@ class MainActivity : AppCompatActivity() {
                                                 statusText.text = "Мозг активен | ${getMyAge()}"
                                                 statusDot.setBackgroundResource(R.drawable.status_dot_green)
                                                 
-                                                // ===== ИСПРАВЛЕНО: плавный микро-скролл к концу текста вместо жесткого fullScroll =====
-                                                chatScrollView.post {
-                                                    val layout = chatOutput.layout
-                                                    if (layout != null) {
-                                                        val lastLine = layout.lineCount - 1
-                                                        val lastLineTop = layout.getLineTop(lastLine)
-                                                        chatScrollView.smoothScrollTo(0, lastLineTop)
-                                                    }
-                                                }
-                                                // ===== КОНЕЦ БЛОКА =====
+                                                // ИСПРАВЛЕНО: Безопасный и легкий скролл без перегрузки UI-потока
+                                                scrollChatToBottom()
                                             }
                                             
                                             Thread {
@@ -997,16 +989,8 @@ class MainActivity : AppCompatActivity() {
                                     statusText.text = "Мозг активен | ${getMyAge()}"
                                     statusDot.setBackgroundResource(R.drawable.status_dot_green)
                                     
-                                    // ===== ИСПРАВЛЕНО: плавный микро-скролл к концу текста вместо жесткого fullScroll =====
-                                    chatScrollView.post {
-                                        val layout = chatOutput.layout
-                                        if (layout != null) {
-                                            val lastLine = layout.lineCount - 1
-                                            val lastLineTop = layout.getLineTop(lastLine)
-                                            chatScrollView.smoothScrollTo(0, lastLineTop)
-                                        }
-                                    }
-                                    // ===== КОНЕЦ БЛОКА =====
+                                    // ИСПРАВЛЕНО: Безопасный и легкий скролл без перегрузки UI-потока
+                                    scrollChatToBottom()
                                 }
                                 
                                 Thread {
@@ -1599,15 +1583,11 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
     
-    // ===== ИСПРАВЛЕНО: appendChat с принудительным автоскроллом =====
+    // ===== ИСПРАВЛЕНО: appendChat очищен от дублирующего скролла =====
     private fun appendChat(text: String) = runOnUiThread { 
         try { 
             chatOutput.append("\n\n$text")
-            scrollChatToBottom()
-            // Дополнительный принудительный скролл
-            chatScrollView.post {
-                chatScrollView.fullScroll(View.FOCUS_DOWN)
-            }
+            scrollChatToBottom() // Этого вызова абсолютно достаточно для плавной докрутки!
         } catch (_: Exception) {}
     }
 
@@ -1901,17 +1881,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
-        // ===== КОМАНДА «ПОСМОТРИ ВВЕРХУ» - АНАЛИЗ ВСЕЙ ИСТОРИИ =====
+        // ===== [ПРИОРИТЕТ] КОМАНДА «ПОСМОТРИ ВВЕРХУ» - АНАЛИЗ ВСЕЙ ИСТОРИИ =====
         if (msg.contains(lookUpCommand, ignoreCase = true)) {
             executeLookUpHistory(msg)
             return
         }
         
-        // ===== RAG-ПОИСК «ВСПОМНИ» =====
+        // ===== [ПРИОРИТЕТ] RAG-ПОИСК «ВСПОМНИ» =====
         if (msg.startsWith(recallCommand, ignoreCase = true)) {
             val searchQuery = msg.removePrefix(recallCommand).trim()
             if (searchQuery.isNotBlank()) {
-                // Запускаем асинхронную сборку RAG-контекста
                 executeRAGSearch(searchQuery)
             } else {
                 appendChat("[СИСТЕМА]: Укажите, что именно необходимо вспомнить.")
@@ -1920,7 +1899,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
-        // ===== ПРЯМАЯ ЗАПИСЬ В ПАМЯТЬ =====
+        // ===== [ПРИОРИТЕТ] ПРЯМАЯ ЗАПИСЬ В ПАМЯТЬ =====
         if (msg.startsWith(directMemoryCommand, ignoreCase = true)) {
             val textToRemember = msg.removePrefix(directMemoryCommand).trim()
             
@@ -1934,21 +1913,19 @@ class MainActivity : AppCompatActivity() {
                     appendChat("[СИСТЕМА ERROR]: Не удалось записать в память: ${e.message}")
                 }
             } else {
-                appendChat("[СИСТEMА]: Режим записи активирован. Наговорите или введите текст факта.")
+                appendChat("[СИСТЕМА]: Режим записи активирован. Наговорите или введите текст факта.")
             }
             return
         }
         
-        // ===== ЛОГИЧЕСКОЕ СЖАТИЕ ИСТОРИИ =====
+        // ===== [ПРИОРИТЕТ] ЛОГИЧЕСКОЕ СЖАТИЕ ИСТОРИИ =====
         if (msg.equals(rememberCommand, ignoreCase = true)) {
             appendChat("[СИСТЕМА]: Запущено логическое сжатие истории (последние 500 строк). Секунду...")
             messageInput.setText("")
             
-            // Получаем последние 500 строк из чата
             val chatHistorySnapshot = getLastChatLines(500)
             val compressionPrompt = buildCompressionPrompt(chatHistorySnapshot)
             
-            // Отправляем на сжатие в активный движок
             executeSilentAiQuery(compressionPrompt) { aiResponse ->
                 try {
                     if (!brainFile.exists()) brainFile.createNewFile()
@@ -1966,6 +1943,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
+        // ===== [ПРИОРИТЕТ] КОМАНДА HELP =====
         if (msg.lowercase().trim() == "help") { 
             showHelpDialog() 
             messageInput.setText("") 
@@ -1973,11 +1951,13 @@ class MainActivity : AppCompatActivity() {
             return 
         }
 
+        // ===== [ПЕРЕНЕСЕНО] ПРОВЕРКА ЛОКАЛЬНОГО РЕЖИМА — ТЕПЕРЬ ПОСЛЕ ВСЕХ КОМАНД =====
         if (checkButton.text.toString() == "ВЫКЛ МОЗГ") {
             sendToLocal(msg)
             return
         }
 
+        // ===== [ДЕФОЛТ] ОТПРАВКА В ОБЛАКО =====
         if (token.isEmpty()) { 
             appendChat("[SYSTEM] Введите токен/API ключ.") 
             return 
@@ -1992,7 +1972,6 @@ class MainActivity : AppCompatActivity() {
         hideKeyboard()
         setStatus("Обработка...", "yellow")
 
-        // Изменить сборку промпта перед вызовом sendToCloud
         val prompt = if (isNeoMode) buildNeoPrompt() else buildStandardPrompt()
         sendToCloud(msg, prompt)
     }
