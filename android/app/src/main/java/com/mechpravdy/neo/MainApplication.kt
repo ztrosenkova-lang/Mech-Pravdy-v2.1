@@ -16,8 +16,7 @@ class MainApplication : Application(), ReactApplication {
         override fun getPackages(): List<ReactPackage> {
             return listOf(
                 com.facebook.react.shell.MainReactPackage(),
-                // ИСПРАВЛЕНО: Правильный путь импорта пакета
-                com.rnllama.LlamaPackage() 
+                com.pocketpalai.llama.LlamaPackage()
             )
         }
     }
