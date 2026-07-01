@@ -14,22 +14,11 @@ class MainApplication : Application(), ReactApplication {
         override fun getUseDeveloperSupport(): Boolean = false
 
         override fun getPackages(): List<ReactPackage> {
-            val packagesList = mutableListOf<ReactPackage>(
-                com.facebook.react.shell.MainReactPackage()
+            return listOf(
+                com.facebook.react.shell.MainReactPackage(),
+                // ЧИСТЫЙ ЗАВОДСКОЙ ПАКЕТ ИЗ КОРНЯ БИБЛИОТЕКИ POCKETPAL
+                com.pocketpalai.llama.LlamaPackage()
             )
-            try {
-                // Динамически вытаскиваем фабричный инстанс пакета по любому из двух путей
-                val packageClass = try {
-                    Class.forName("com.rnllama.LlamaPackage")
-                } catch (e: Exception) {
-                    Class.forName("com.pocketpalai.llama.LlamaPackage")
-                }
-                val packageInstance = packageClass.getConstructor().newInstance() as ReactPackage
-                packagesList.add(packageInstance)
-            } catch (e: Exception) {
-                android.util.Log.e("MECH_SYSTEM", "Ошибка загрузки пакета рефлексией: ${e.message}")
-            }
-            return packagesList
         }
     }
 
