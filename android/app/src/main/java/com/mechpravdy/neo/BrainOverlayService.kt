@@ -58,32 +58,26 @@ class BrainOverlayService : Service() {
                     val queryFile = File(filesDir, "brain_query.txt")
                     val responseFile = File(filesDir, "brain_response.txt")
 
-                    // ЕДИНСТВЕННЫЙ БОЕВОЙ ЦИКЛ СКАНЕРА
                     while (LlamaJNI.isModelLoaded()) {
-                        Thread.sleep(250) // Защита CPU от перегрева
+                        // Жесткая разгрузка процессора MediaTek Helio G88
+                        Thread.sleep(300) 
 
                         if (queryFile.exists()) {
                             val rawPrompt = queryFile.readText().trim()
                             
                             if (rawPrompt.isNotBlank()) {
-                                // Команда на выгрузку — разрываем цикл
                                 if (rawPrompt == "COMMAND_UNLOAD_MODEL") {
                                     queryFile.writeText("")
                                     break
                                 }
 
-                                // Локальный ИИ начинает вычисления
                                 handler.post { floatingView?.text = "НЕО: ДУМАЕТ..." }
-                                
-                                // Чистим файл запроса, чтобы избежать повторного чтения
-                                queryFile.writeText("")
+                                queryFile.writeText("") // Очищаем мост ввода
 
-                                // Генерируем ответ через JNI с колбэком
+                                // Безопасный вызов официального инференса
                                 val aiResponse = LlamaJNI.generate(rawPrompt)
 
-                                // Пишем готовый ответ в мост для MainActivity
-                                responseFile.writeText(aiResponse)
-                                
+                                responseFile.writeText(aiResponse) // Отдаем ответ Бате
                                 handler.post { floatingView?.text = "НЕО: ГОТОВ" }
                             }
                         }
