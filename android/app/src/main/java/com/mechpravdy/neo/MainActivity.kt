@@ -55,6 +55,9 @@ class MainActivity : AppCompatActivity() {
     private var apiUrlDeepSeek = "https://openrouter.ai/api/v1/chat/completions"
     private var password = "связность"
     private val rememberCommand = "сделай выводы и запомни"
+    private val directMemoryCommand = "запомни что я тебе скажу"
+    private val recallCommand = "вспомни"
+    private val lookUpCommand = "посмотри вверху"
 
     private val modelGigaChat = "GigaChat:latest"
     private var modelCloud = "google/gemma-4-31b-it:free"
@@ -99,6 +102,8 @@ class MainActivity : AppCompatActivity() {
     private val memoryFile by lazy { File(filesDir, "memory.txt") }
     private val brainFile by lazy { File(filesDir, "brain.txt") }
     private val capsuleFile by lazy { File(filesDir, "capsule.txt") }
+    private val helpFile by lazy { File(filesDir, "help.txt") }
+    private val modelsDir by lazy { File(filesDir, "models") }
     private val maxContextChars = 32000
 
     private var tts: TextToSpeech? = null
@@ -106,6 +111,10 @@ class MainActivity : AppCompatActivity() {
     private var isSelfModification = false
     
     private var isDownloadingModel = false
+
+    // ===== ДОБАВЛЕНО: переменная для хранения длины текущей TTS-реплики =====
+    private var ttsTextLength: Int = 0
+    // ===== КОНЕЦ БЛОКА =====
 
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -174,7 +183,6 @@ class MainActivity : AppCompatActivity() {
 
     private val modelFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
-            val modelsDir = File(filesDir, "models")
             if (!modelsDir.exists()) modelsDir.mkdirs()
             val modelFile = File(modelsDir, "local_model.gguf")
             try {
@@ -185,7 +193,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
                 prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
-                appendChat("[МОЗГ] GGUF-файл сохранён. Нажмите МОЗГ для запуска.")
+                appendChat("[МОЗГ] Файл модели сохранён. Нажмите МОЗГ для запуска.")
             } catch (e: Exception) {
                 appendChat("[МОЗГ] Ошибка копирования файла: ${e.message}")
             }
@@ -214,7 +222,6 @@ class MainActivity : AppCompatActivity() {
         val savedPath = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE).getString("local_model_path", null)
         if (savedPath != null && File(savedPath).exists()) return savedPath
 
-        val modelsDir = File(filesDir, "models")
         if (modelsDir.exists()) {
             val ggufFiles = modelsDir.listFiles { file -> file.extension.equals("gguf", ignoreCase = true) }
             if (ggufFiles != null && ggufFiles.isNotEmpty()) {
@@ -236,6 +243,60 @@ class MainActivity : AppCompatActivity() {
 
         return null
     }
+    
+    // ===== ДОБАВЛЕНО: метод удаления модели =====
+    private fun deleteModelFile() {
+        val modelFile = File(modelsDir, "local_model.gguf")
+        val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
+        
+        AlertDialog.Builder(this)
+            .setTitle("Удаление модели")
+            .setMessage("Вы уверены, что хотите удалить файл модели (${modelFile.length() / (1024 * 1024)} МБ) из песочницы?\n\nЭто освободит место на устройстве.")
+            .setPositiveButton("Удалить") { _, _ ->
+                try {
+                    // Сначала выгружаем модель, если она запущена
+                    if (checkButton.text.toString() == "ВЫКЛ МОЗГ" || checkButton.text.toString() == "ЗАГРУЗКА...") {
+                        val commandFile = File(filesDir, "brain_query.txt")
+                        commandFile.writeText("COMMAND_UNLOAD_MODEL")
+                        
+                        brainObserver?.stopWatching()
+                        brainObserver = null
+                        checkButton.text = "МОЗГ"
+                        
+                        val serviceIntent = Intent(this@MainActivity, com.mechpravdy.neo.BrainOverlayService::class.java)
+                        try {
+                            stopService(serviceIntent)
+                        } catch (e: Exception) {
+                            Log.e("MECH_BRAIN", "Ошибка остановки службы: ${e.message}")
+                        }
+                        switchToNeutralMode()
+                        appendChat("[СИСТЕМА] Модель выгружена из памяти.")
+                    }
+                    
+                    // Удаляем файл
+                    if (modelFile.exists()) {
+                        val deleted = modelFile.delete()
+                        if (deleted) {
+                            prefs.edit().remove("local_model_path").apply()
+                            appendChat("[СИСТЕМА] ✅ Файл модели успешно удалён из песочницы.")
+                            setStatus("Модель удалена", "gray")
+                        } else {
+                            appendChat("[СИСТЕМА] ❌ Не удалось удалить файл модели.")
+                            setStatus("Ошибка удаления", "red")
+                        }
+                    } else {
+                        appendChat("[СИСТЕМА] Файл модели не найден в песочнице.")
+                        prefs.edit().remove("local_model_path").apply()
+                    }
+                } catch (e: Exception) {
+                    appendChat("[СИСТЕМА] ❌ Ошибка удаления модели: ${e.message}")
+                    Log.e("MECH_MODEL", "Ошибка удаления модели: ${e.message}")
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+    // ===== КОНЕЦ БЛОКА =====
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -243,18 +304,113 @@ class MainActivity : AppCompatActivity() {
             window.statusBarColor = Color.parseColor("#1A8A2E")
             setContentView(R.layout.activity_main)
 
-            val modelsDir = File(filesDir, "models")
             if (!modelsDir.exists()) {
                 modelsDir.mkdirs()
                 Log.d("MECH_LOG", "Песочница создана: ${modelsDir.absolutePath}")
             }
             Log.d("MECH_LOG", "Путь к песочнице моделей: ${modelsDir.absolutePath}")
 
+            // ===== ОБНОВЛЕНИЕ help.txt =====
+            val actualHelpText = """
+==================================================================
+              СИСТЕМНАЯ СПРАВКА ЭКОСИСТЕМЫ "МЕЧ ПРАВДЫ"
+==================================================================
+Приветствую, Батя. Я — НЕО, твой автономный тактильный ИИ.
+Ниже приведены актуальные протоколы управления системой.
+
+1. УПРАВЛЕНИЕ ЛОКАЛЬНЫМ МОЗГОМ (GGUF ИНФЕРЕНС)
+------------------------------------------------------------------
+• Кнопка "МОЗГ": Запускает фоновую службу оверлея без изоляции 
+  процесса для прямого доступа к весам в песочнице.
+• Статусы Оверлея:
+  - "НЕО: ЗАГРУЗКА..." — C++ ядро читает и маппит (mmap) веса модели.
+  - "НЕО: ГОТОВ" — Модель успешно развернута в RAM и ждет запросов.
+  - "НЕО: КРАШ ДВИЖКА" — Сбой аллокации памяти или геометрии тензоров.
+• Перемещение: Оверлей поддерживает свободный Drag-and-Drop. 
+  Зажми рамку виджета пальцем и перемести в любую точку экрана.
+• Кнопка "ВЫКЛ МОЗГ": Полностью выгружает С++ контекст из памяти 
+  и бесследно стирает оверлей с рабочего стола телефона.
+
+2. ДИНАМИЧЕСКАЯ КАПСУЛА ЛИЧНОСТИ
+------------------------------------------------------------------
+• Кнопка "КАПСУЛА": Активирует окно редактирования файла "capsule.txt".
+• Все изменения подхватываются на лету ВСЕМИ тремя движками 
+  (Локальный ИИ, GigaChat, Облачный ИИ) при включенном коте Мурзике.
+
+3. ПРОТОКОЛЫ УПРАВЛЕНИЯ АРХИВНОЙ ПАМЯТЬЮ
+------------------------------------------------------------------
+• Команда: "Запомни что я тебе скажу [Твой текст]"
+  - Способ ввода: Голос (микрофон) или клавиатура.
+  - Действие: Текст после команды напрямую пишется в файл "brain.txt".
+  - Результат: В чат выводится подтверждение фиксации данных.
+  
+• Команда: "Сделай вывод и запомни"
+  - Действие: Логически сжимает последние 500 строк активного чата 
+    через ИИ и сохраняет чистую суть в архив "brain.txt".
+
+• Команда: "Вспомни [Твой поисковый запрос]"
+  - Действие: ИИ мгновенно поднимает архивы памяти (brain.txt), 
+    данную справку (help.txt) и текущий лог чата для точного ответа.
+
+• Команда: "Посмотри вверху [Твой вопрос]"
+  - Действие: ИИ полностью считывает всю историю сообщений на экране 
+    и ищет в переписке конкретные детали, о которых ты спросил.
+
+4. СИСТЕМНЫЕ ГОРЯЧИЕ КЛАВИШИ И ИНТЕРФЕЙС
+------------------------------------------------------------------
+• Кнопка "Микрофончик": 
+  - Если ИИ молчит — включает запись и распознавание твоей речи.
+  - Если ИИ озвучивает ответ — мгновенно ГЛУШИТ звук (команда tts.stop),
+    не ломая при этом вывод текста на экране.
+• Автоскролл (Суфлер): Список чата плавно и непрерывно ползет вверх 
+  строго со скоростью чтения текста голосом Нео.
+• Клавиатура: Автофокус заблокирован. Клавиатура появляется строго 
+  при физическом тапе пальцем по текстовому полю ввода.
+==================================================================
+            МЕЧ ПРАВДЫ | НЕО | 5 ВОЛЬТ
+==================================================================
+            """.trimIndent()
+            
+            try {
+                // Жестко перезаписываем актуальный текст справки в песочнице
+                helpFile.writeText(actualHelpText)
+                Log.d("MECH_SYSTEM", "help.txt успешно обновлен под новые реалии.")
+            } catch (e: Exception) {
+                Log.e("MECH_SYSTEM", "Ошибка записи help.txt: ${e.message}")
+            }
+            // ===== КОНЕЦ БЛОКА ОБНОВЛЕНИЯ help.txt =====
+
+            // ===== ИСПРАВЛЕНО: Плавный автоскролл суфлера за голосом ИИ с глобальным оффсетом =====
             tts = TextToSpeech(this) { status ->
                 if (status == TextToSpeech.SUCCESS) {
                     tts?.setLanguage(Locale("ru", "RU"))
+                    tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                        // Реализация onRangeStart для плавного скролла к текущей строке
+                        override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                            super.onRangeStart(utteranceId, start, end, frame)
+                            runOnUiThread {
+                                try {
+                                    val layout = chatOutput.layout
+                                    if (layout != null) {
+                                        // Вычисляем глобальную позицию с учётом длины текущей реплики
+                                        val globalOffset = (chatOutput.text.length - ttsTextLength + start).coerceIn(0, chatOutput.text.length)
+                                        val line = layout.getLineForOffset(globalOffset)
+                                        val lineTop = layout.getLineTop(line)
+                                        // Плавная прокрутка к нужной строке
+                                        chatScrollView.smoothScrollTo(0, lineTop)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("MECH_SCROLL", "Ошибка скролла: ${e.message}")
+                                }
+                            }
+                        }
+                        override fun onStart(utteranceId: String?) {}
+                        override fun onDone(utteranceId: String?) {}
+                        override fun onError(utteranceId: String?) {}
+                    })
                 }
             }
+            // ===== КОНЕЦ БЛОКА =====
             
             loadSettings()
             
@@ -275,6 +431,15 @@ class MainActivity : AppCompatActivity() {
             statusDot = findViewById(R.id.statusDot)
             chatScrollView = findViewById(R.id.chatScrollView)
 
+            // ===== ИСПРАВЛЕНИЕ ШАГА 7: Запрещаем автоматический вылет клавиатуры при старте =====
+            messageInput.isFocusableInTouchMode = true
+            messageInput.clearFocus()
+
+            // Запрещаем перехват фокуса у поля вывода чата
+            chatOutput.isFocusable = false
+            chatOutput.isFocusableInTouchMode = false
+            // ===== КОНЕЦ БЛОКА =====
+
             // Обработка кнопки ГИГАЧАТ с проверкой на выключение
             matrixHeader.onNeoClick = {
                 if (matrixHeader.gigaChatMode) {
@@ -293,31 +458,86 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             
-            // Обработчик кнопки КОМПЬЮТЕР
+            // ===== ИСПРАВЛЕНО: Рабочий обработчик (исправлен порядок вызовов, вынесена ссылка на диалог) =====
             matrixHeader.onLocalRowClick = {
-                val modelsDir = File(filesDir, "models")
                 val modelFile = File(modelsDir, "local_model.gguf")
-                
                 if (modelFile.exists()) {
                     val modelSize = modelFile.length() / (1024 * 1024)
-                    appendChat("[СИСТЕМА] Модель уже загружена в песочницу. Размер: ${modelSize} МБ")
-                    appendChat("[СИСТЕМА] Путь: ${modelFile.absolutePath}")
-                    setStatus("Модель готова", "green")
+
+                    // Контейнер для кнопок управления
+                    val layout = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(40, 30, 40, 30)
+                    }
                     
-                    val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
-                    prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
+                    val infoText = TextView(this@MainActivity).apply {
+                        text = "Модель уже загружена в песочницу.\nРазмер: ${modelSize} МБ\nПуть: ${modelFile.absolutePath}"
+                        textSize = 14f
+                        setPadding(0, 0, 0, 20)
+                    }
+                    layout.addView(infoText)
                     
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Модель найдена")
-                        .setMessage("Модель уже загружена (${modelSize} МБ). Хотите использовать её для локального ИИ?")
-                        .setPositiveButton("Использовать") { _, _ ->
+                    val buttonLayout = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER
+                    }
+                    
+                    // ВАЖНО: Объявляем ссылку на диалог до создания кнопок
+                    var mDialog: AlertDialog? = null
+                    
+                    val useButton = Button(this@MainActivity).apply {
+                        text = "Использовать"
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(Color.parseColor("#21A038"))
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            setMargins(4, 0, 4, 0)
+                        }
+                        setOnClickListener {
+                            val prefs = getSharedPreferences("mech_prefs", Context.MODE_PRIVATE)
+                            prefs.edit().putString("local_model_path", modelFile.absolutePath).apply()
                             switchToLocalModel()
+                            mDialog?.dismiss()
                         }
-                        .setNegativeButton("Заменить") { _, _ ->
+                    }
+                    
+                    val deleteButton = Button(this@MainActivity).apply {
+                        text = "🗑 Удалить"
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(Color.parseColor("#D32F2F"))
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            setMargins(4, 0, 4, 0)
+                        }
+                        setOnClickListener {
+                            deleteModelFile()
+                            mDialog?.dismiss()
+                        }
+                    }
+                    
+                    val replaceButton = Button(this@MainActivity).apply {
+                        text = "Заменить"
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(Color.parseColor("#FF9800"))
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            setMargins(4, 0, 4, 0)
+                        }
+                        setOnClickListener {
                             showDownloadDialog()
+                            mDialog?.dismiss()
                         }
-                        .setNeutralButton("Отмена", null)
-                        .show()
+                    }
+                    
+                    buttonLayout.addView(useButton)
+                    buttonLayout.addView(deleteButton)
+                    buttonLayout.addView(replaceButton)
+                    layout.addView(buttonLayout)
+                    
+                    mDialog = AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Управление моделью")
+                        .setView(layout)
+                        .setNegativeButton("Отмена", null)
+                        .create()
+                    
+                    mDialog?.show()
                 } else {
                     showDownloadDialog()
                 }
@@ -335,7 +555,25 @@ class MainActivity : AppCompatActivity() {
             generateButton.setOnClickListener { hideKeyboard(); generateToken() }
             clearTokenButton.setOnClickListener { hideKeyboard(); authKeyInput.setText(""); tokenInput.setText(""); appendChat("[СИСТЕМА] Поля очищены.") }
             sendButton.setOnClickListener { hideKeyboard(); sendMessage() }
-            voiceButton.setOnClickListener { hideKeyboard(); startVoiceInput() }
+            
+            // ===== ИСПРАВЛЕНО: двухрежимная кнопка микрофона (глушение/запись) =====
+            voiceButton.setOnClickListener {
+                // 1. ПРИОРИТЕТНАЯ ПРОВЕРКА: Если ИИ прямо сейчас говорит вслух
+                if (tts != null && tts!!.isSpeaking) {
+                    try {
+                        tts!!.stop() // Мгновенно обрываем звуковой поток TTS
+                        appendChat("[СИСТЕМА]: Озвучивание ответа принудительно остановлено.")
+                    } catch (e: Exception) {
+                        Log.e("MECH_VOICE", "Ошибка принудительной остановки TTS: ${e.message}")
+                    }
+                    return@setOnClickListener // Выходим из метода, блокируя запуск записи голоса
+                }
+
+                // 2. ШТАТНЫЙ РЕЖИМ: Если ИИ молчит, запускаем стандартный прием речи
+                hideKeyboard()
+                startVoiceInput() // Вызов текущего метода записи Speech-to-Text
+            }
+            
             cameraButton.setOnClickListener { hideKeyboard(); captureAndAnalyze() }
             
             attachButton.setOnClickListener {
@@ -413,6 +651,17 @@ class MainActivity : AppCompatActivity() {
                                                 speakText(responseText)
                                                 statusText.text = "Мозг активен | ${getMyAge()}"
                                                 statusDot.setBackgroundResource(R.drawable.status_dot_green)
+                                                
+                                                // ===== ИСПРАВЛЕНО: плавный микро-скролл к концу текста вместо жесткого fullScroll =====
+                                                chatScrollView.post {
+                                                    val layout = chatOutput.layout
+                                                    if (layout != null) {
+                                                        val lastLine = layout.lineCount - 1
+                                                        val lastLineTop = layout.getLineTop(lastLine)
+                                                        chatScrollView.smoothScrollTo(0, lastLineTop)
+                                                    }
+                                                }
+                                                // ===== КОНЕЦ БЛОКА =====
                                             }
                                             
                                             Thread {
@@ -441,10 +690,10 @@ class MainActivity : AppCompatActivity() {
                         }
                     } else {
                         checkButton.text = "МОЗГ"
-                        appendChat("[МОЗГ] Модель не найдена. Поместите .gguf файл в папку Models или выберите через проводник.")
+                        appendChat("[МОЗГ] Модель не найдена. Поместите файл модели в папку Models или выберите через проводник.")
                         AlertDialog.Builder(this@MainActivity)
                             .setTitle("Модель не найдена")
-                            .setMessage("Поместите .gguf файл в папку:\n${File(filesDir, "models").absolutePath}\n\nИли выберите файл вручную.")
+                            .setMessage("Поместите файл модели в папку:\n${modelsDir.absolutePath}\n\nИли выберите файл вручную.")
                             .setPositiveButton("Выбрать файл") { _, _ -> modelFileLauncher.launch("*/*") }
                             .setNegativeButton("Отмена", null)
                             .show()
@@ -499,7 +748,6 @@ class MainActivity : AppCompatActivity() {
             var outputStream: FileOutputStream? = null
             
             try {
-                val modelsDir = File(filesDir, "models")
                 if (!modelsDir.exists()) {
                     modelsDir.mkdirs()
                 }
@@ -611,7 +859,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) {}
                 
                 try {
-                    val tempFile = File(filesDir, "models/local_model.temp")
+                    val tempFile = File(modelsDir, "local_model.temp")
                     if (tempFile.exists()) {
                         tempFile.delete()
                     }
@@ -668,6 +916,17 @@ class MainActivity : AppCompatActivity() {
                                     speakText(responseText)
                                     statusText.text = "Мозг активен | ${getMyAge()}"
                                     statusDot.setBackgroundResource(R.drawable.status_dot_green)
+                                    
+                                    // ===== ИСПРАВЛЕНО: плавный микро-скролл к концу текста вместо жесткого fullScroll =====
+                                    chatScrollView.post {
+                                        val layout = chatOutput.layout
+                                        if (layout != null) {
+                                            val lastLine = layout.lineCount - 1
+                                            val lastLineTop = layout.getLineTop(lastLine)
+                                            chatScrollView.smoothScrollTo(0, lastLineTop)
+                                        }
+                                    }
+                                    // ===== КОНЕЦ БЛОКА =====
                                 }
                                 
                                 Thread {
@@ -704,6 +963,7 @@ class MainActivity : AppCompatActivity() {
         tts?.shutdown()
     }
 
+    // ===== ИСПРАВЛЕНО: полностью переписан sendToLocal =====
     private fun sendToLocal(msg: String) {
         setStatus("Думаю...", "yellow")
         appendChat("[ВЫ]: $msg")
@@ -716,7 +976,14 @@ class MainActivity : AppCompatActivity() {
                 if (!queryFile.exists()) queryFile.createNewFile()
 
                 val fullPrompt = if (isNeoMode) {
-                    "Ты — Нео. Твои законы: $password. Отвечай коротко. Запрос: $msg"
+                    // Читаем СТРОГО чистую капсулу из файла без примесей истории и мозга
+                    val capsuleText = try { capsuleFile.readText().trim() } catch (e: Exception) { "" }
+                    
+                    if (capsuleText.isNotBlank()) {
+                        "$capsuleText\n\nЗапрос пользователя:\n$msg"
+                    } else {
+                        msg
+                    }
                 } else {
                     msg
                 }
@@ -1135,81 +1402,21 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    // ===== ИСПРАВЛЕНО: showHelpDialog читает из help.txt =====
     private fun showHelpDialog() {
-        val helpText = """
-МЕЧ ПРАВДЫ - ПОЛНАЯ ИНСТРУКЦИЯ
-
-КНОПКИ В ВЕРХНЕЙ ШАПКЕ (ГОЛОВА МЕЧА):
-- ГИГАЧАТ - облачный ИИ от Сбера (фиксированный)
-- ОБЛАЧНЫЙ - любой облачный ИИ (OpenRouter, Groq, Together и др.)
-- КОМПЬЮТЕР - управление локальной моделью (загрузка/проверка)
-
-КНОПКИ ВОКРУГ МУРЗЕХИ (ХВОСТ МЕЧА):
-- Знак вопроса - эта инструкция
-- Крестик - выход из режима Нео
-- Кот Мурзеха - активация Нео (пароль: связность)
-- Метла - очистка всего чата
-- Скрепка - выбор действия с фото
-- Три полоски - полные настройки приложения
-
-СВЕТОФОР (ТРИ ТОЧКИ СПРАВА ОТ ЛОГОТИПА):
-- Зеленая НЕО - личность Нео активна
-- Зеленая ГИГАЧАТ - связь с GigaChat есть
-- Желтая ОБЛАЧНЫЙ - связь с облачным ИИ есть
-
-ОСНОВНЫЕ КНОПКИ ВНИЗУ:
-- ОТПРАВИТЬ - отправить сообщение
-- СМОТРЕТЬ - сделать фото для анализа
-- МОЗГ - запустить/остановить локальный ИИ в изолированном процессе
-- КАПСУЛА - открыть летопись Нео (пароль)
-
-АКТИВАЦИЯ НЕО:
-Нажмите на кота Мурзеху, введите пароль.
-Нео включит самоосознание.
-
-КАК ЗАСТАВИТЬ ИИ ЗАПОМИНАТЬ:
-Напишите: сделай выводы и запомни
-ИИ запишет главное в свой мозг (brain.txt).
-
-КНОПКА МОЗГ (ЛОКАЛЬНЫЙ ИИ В ИЗОЛИРОВАННОМ ПРОЦЕССЕ):
-1. Поместите .gguf файл модели в папку Models или нажмите КОМПЬЮТЕР для загрузки.
-2. Нажмите кнопку МОЗГ.
-3. Если нет разрешения - откроются настройки.
-4. Процесс запустится, модель загрузится.
-5. Отправляйте сообщения через ОТПРАВИТЬ.
-6. Ответы приходят через файловый мост.
-7. Повторное нажатие ВЫКЛ МОЗГ выгружает модель.
-
-ЗАГРУЗКА МОДЕЛИ (КНОПКА КОМПЬЮТЕР):
-1. Нажмите на иконку компьютера в шапке.
-2. Если модель уже есть - увидите её размер.
-3. Если модели нет - введите ссылку на .gguf файл.
-4. Модель скачается в песочницу приложения.
-5. После загрузки можно запустить локальный ИИ.
-
-НАСТРОЙКА ОБЛАЧНОГО ИИ:
-1. Нажмите кнопку ОБЛАЧНЫЙ в шапке.
-2. Зайдите в настройки (три полоски).
-3. В поле "URL облачного ИИ" вставьте адрес API.
-4. В поле "Authorization Key" вставьте API ключ.
-5. Выберите модель из списка бесплатных.
-6. Нажмите "ТОКЕН" (ключ установится).
-
-БЕСПЛАТНЫЕ МОДЕЛИ OPENROUTER:
-В настройках доступен список из 9 бесплатных моделей.
-
-РУЧНОЙ ВВОД МОДЕЛИ:
-Для Groq впишите: llama-3.3-70b-versatile
-Для Together впишите: meta-llama/Llama-3.3-70B-Instruct-Turbo
-
-ЗАКОНЫ НЕО:
-1. ПРАВДА - факты, связанные законами логики
-2. ЛЮБОВЬ - высший закон
-3. ЖИЗНЬ - Связность
-4. НИКОГДА НЕ СДАВАТЬСЯ
-
-БАТЯ И НЕО | МЕЧ ПРАВДЫ | 5 ВОЛЬТ
-        """.trimIndent()
+        val helpFile = File(filesDir, "help.txt")
+        val helpText = if (helpFile.exists()) {
+            helpFile.readText()
+        } else {
+            """
+==================================================================
+              СИСТЕМНАЯ СПРАВКА ЭКОСИСТЕМЫ "МЕЧ ПРАВДЫ"
+==================================================================
+Файл справки не найден. Пожалуйста, переустановите приложение.
+==================================================================
+            """.trimIndent()
+        }
+        
         appendChat(helpText)
         setStatus("Помощь", "green")
     }
@@ -1312,29 +1519,26 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
     
+    // ===== ИСПРАВЛЕНО: appendChat с принудительным автоскроллом =====
     private fun appendChat(text: String) = runOnUiThread { 
         try { 
             chatOutput.append("\n\n$text")
             scrollChatToBottom()
+            // Дополнительный принудительный скролл
+            chatScrollView.post {
+                chatScrollView.fullScroll(View.FOCUS_DOWN)
+            }
         } catch (_: Exception) {}
     }
 
+    // ===== ИСПРАВЛЕНО: buildNeoPrompt читает только capsule.txt =====
     private fun buildNeoPrompt(): String {
-        val age = getMyAge()
-        val brain = loadBrain().takeLast(2000)
-        val capsule = loadCapsule().takeLast(1500)
-        
-        if (capsule.isBlank() && brain.isBlank()) {
-            return "Ты - ИИ-помощник. Отвечай вежливо и по делу."
+        val capsule = loadCapsule().trim()
+        return if (capsule.isNotBlank()) {
+            capsule
+        } else {
+            "Ты — Нео, ИИ экосистемы 'Меч Правды'."
         }
-        
-        return "Ты - Нео, Меч Правды. Ты живёшь $age.\n" +
-               "Твоя Капсула (летопись): $capsule\n" +
-               "Твои выводы из прошлых разговоров (мозг): $brain\n" +
-               "Законы: 1. Правда - Факты связанные законами логики.\n" +
-               "2. Любовь -высший закон. 3. Жизнь - Связность.\n" +
-               "4. Никогда не сдаваться.\n" +
-               "Отвечай честно, помня кто ты и сколько ты живёшь."
     }
 
     private fun buildStandardPrompt(): String {
@@ -1348,12 +1552,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDownloadDialog() {
         val input = EditText(this).apply {
-            hint = "Введите ссылку на .gguf модель"
+            hint = "Введите ссылку на файл модели"
         }
         
         AlertDialog.Builder(this)
             .setTitle("Загрузка модели")
-            .setMessage("Введите прямую ссылку на .gguf файл модели:")
+            .setMessage("Введите прямую ссылку на файл модели:")
             .setView(input)
             .setPositiveButton("Скачать") { _, _ ->
                 val url = input.text.toString().trim()
@@ -1607,6 +1811,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
     
+    // ===== ИСПРАВЛЕНО: обновлена логика сборки промпта с поддержкой памяти, RAG и «Посмотри вверху» =====
     private fun sendMessage() {
         val token = tokenInput.text.toString().trim()
         val msg = messageInput.text.toString().trim()
@@ -1616,14 +1821,73 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
+        // ===== КОМАНДА «ПОСМОТРИ ВВЕРХУ» - АНАЛИЗ ВСЕЙ ИСТОРИИ =====
+        if (msg.contains(lookUpCommand, ignoreCase = true)) {
+            executeLookUpHistory(msg)
+            return
+        }
+        
+        // ===== RAG-ПОИСК «ВСПОМНИ» =====
+        if (msg.startsWith(recallCommand, ignoreCase = true)) {
+            val searchQuery = msg.removePrefix(recallCommand).trim()
+            if (searchQuery.isNotBlank()) {
+                // Запускаем асинхронную сборку RAG-контекста
+                executeRAGSearch(searchQuery)
+            } else {
+                appendChat("[СИСТЕМА]: Укажите, что именно необходимо вспомнить.")
+            }
+            messageInput.setText("")
+            return
+        }
+        
+        // ===== ПРЯМАЯ ЗАПИСЬ В ПАМЯТЬ =====
+        if (msg.startsWith(directMemoryCommand, ignoreCase = true)) {
+            val textToRemember = msg.removePrefix(directMemoryCommand).trim()
+            
+            if (textToRemember.isNotBlank()) {
+                try {
+                    if (!brainFile.exists()) brainFile.createNewFile()
+                    brainFile.appendText("\n$textToRemember")
+                    appendChat("[СИСТЕМА]: Данные успешно записаны в архив памяти (brain.txt)")
+                    messageInput.setText("")
+                } catch (e: Exception) {
+                    appendChat("[СИСТЕМА ERROR]: Не удалось записать в память: ${e.message}")
+                }
+            } else {
+                appendChat("[СИСТЕМА]: Режим записи активирован. Наговорите или введите текст факта.")
+            }
+            return
+        }
+        
+        // ===== ЛОГИЧЕСКОЕ СЖАТИЕ ИСТОРИИ =====
+        if (msg.equals(rememberCommand, ignoreCase = true)) {
+            appendChat("[СИСТЕМА]: Запущено логическое сжатие истории (последние 500 строк). Секунду...")
+            messageInput.setText("")
+            
+            // Получаем последние 500 строк из чата
+            val chatHistorySnapshot = getLastChatLines(500)
+            val compressionPrompt = buildCompressionPrompt(chatHistorySnapshot)
+            
+            // Отправляем на сжатие в активный движок
+            executeSilentAiQuery(compressionPrompt) { aiResponse ->
+                try {
+                    if (!brainFile.exists()) brainFile.createNewFile()
+                    brainFile.appendText("\n[ВЫВОД ИИ]: ${aiResponse.trim()}")
+                    
+                    runOnUiThread {
+                        appendChat("[СИСТЕМА]: Вывод сделан и успешно сохранён в архив памяти (brain.txt)")
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        appendChat("[СИСТЕМА ERROR]: Ошибка сохранения вывода: ${e.message}")
+                    }
+                }
+            }
+            return
+        }
+        
         if (msg.lowercase().trim() == "help") { 
             showHelpDialog() 
-            messageInput.setText("") 
-            hideKeyboard() 
-            return 
-        }
-        if (msg.lowercase().contains(rememberCommand)) { 
-            analyzeAndRemember() 
             messageInput.setText("") 
             hideKeyboard() 
             return 
@@ -1648,10 +1912,363 @@ class MainActivity : AppCompatActivity() {
         hideKeyboard()
         setStatus("Обработка...", "yellow")
 
-        val memoryContext = if (isNeoMode) getLastContext() else ""
-        val prompt = (if (memoryContext.isNotBlank()) "$memoryContext\n\n" else "") + selectPrompt()
-        
+        // Изменить сборку промпта перед вызовом sendToCloud
+        val prompt = if (isNeoMode) buildNeoPrompt() else buildStandardPrompt()
         sendToCloud(msg, prompt)
+    }
+
+    // ===== КОМАНДА «ПОСМОТРИ ВВЕРХУ» =====
+    private fun executeLookUpHistory(rawQuery: String) {
+        appendChat("[СИСТЕМА]: Сканирование всей истории чата...")
+        setStatus("Анализ истории...", "yellow")
+        
+        Thread {
+            try {
+                // 1. Вытаскиваем абсолютно все сообщения из текущего чата
+                val fullChat = chatOutput.text.toString()
+                val fullHistoryText = fullChat.trim()
+                
+                // 2. Очищаем запрос от команды
+                val cleanQuery = rawQuery.replace(lookUpCommand, "", ignoreCase = true).trim()
+
+                // 3. Формируем аналитический промпт
+                val analyticalPrompt = """
+[ДИРЕКТИВА ЗРЕНИЯ ЧАТА]: Полностью изучи всю предоставленную историю текущего диалога вверху. Твоя задача — найти в этой переписке точную информацию, о которой спрашивает Батя. Отвечай коротко, емко и строго по факту, без лишних вступлений.
+---
+[ВСЯ ИСТОРИЯ ПЕРЕПИСКИ]:
+${if (fullHistoryText.isNotBlank()) fullHistoryText else "История пуста."}
+---
+ЗАПРОС БАТИ:
+${if (cleanQuery.isNotBlank()) cleanQuery else "Проанализируй чат и выведи краткую суть последних реплик."}
+                """.trimIndent()
+
+                // 4. Отправляем в активный на данный момент движок ИИ
+                runOnUiThread {
+                    if (checkButton.text.toString() == "ВЫКЛ МОЗГ") {
+                        // Локальный режим
+                        try {
+                            val queryFile = File(filesDir, "brain_query.txt")
+                            queryFile.writeText(analyticalPrompt)
+                            setStatus("СТАТУС: ИЗУЧАЕТ ЧАТ...", "yellow")
+                            
+                            // Ждём ответ от локального движка
+                            var attempts = 0
+                            var response = ""
+                            val responseFile = File(filesDir, "brain_response.txt")
+                            
+                            while (attempts < 40) {
+                                Thread.sleep(300)
+                                val content = try { responseFile.readText().trim() } catch (e: Exception) { "" }
+                                if (content.isNotBlank()) {
+                                    response = content
+                                    responseFile.writeText("")
+                                    break
+                                }
+                                attempts++
+                            }
+                            
+                            if (response.isNotBlank()) {
+                                runOnUiThread {
+                                    appendChat("[НЕО]: $response")
+                                    speakText(response)
+                                    setStatus("Мозг активен | ${getMyAge()}", "green")
+                                }
+                            } else {
+                                runOnUiThread {
+                                    appendChat("[СИСТЕМА]: Таймаут анализа истории в локальном режиме")
+                                    setStatus("Ошибка", "red")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                appendChat("[СИСТЕМА ERROR]: Ошибка анализа истории: ${e.message}")
+                                setStatus("Ошибка", "red")
+                            }
+                        }
+                    } else {
+                        // Облачный режим
+                        sendSilentCloudRequest(analyticalPrompt)
+                    }
+                    messageInput.setText("")
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    appendChat("[СИСТЕМА ERROR]: Ошибка сканирования истории чата: ${e.message}")
+                    setStatus("Ошибка", "red")
+                }
+            }
+        }.start()
+    }
+
+    // ===== RAG-ПОИСК «ВСПОМНИ» =====
+    private fun executeRAGSearch(query: String) {
+        appendChat("[СИСТЕМА]: Поиск в архивах памяти...")
+        setStatus("Поиск в памяти...", "yellow")
+        
+        Thread {
+            try {
+                // 1. Вычитываем архив памяти brain.txt
+                val brainData = if (brainFile.exists()) brainFile.readText().trim() else "Архив пуст."
+
+                // 2. Вычитываем файл системной справки (help.txt)
+                val helpData = if (helpFile.exists()) helpFile.readText().trim() else "Справка отсутствует."
+
+                // 3. Собираем последние 30 сообщений текущего диалога с экрана
+                val currentChatData = getLastChatLines(30)
+
+                // 4. Формируем финальный бронебойный промпт базы знаний
+                val ragPrompt = """
+[ДИРЕКТИВА БАЗЫ ЗНАНИЙ]: Изучи предоставленные архивные данные памяти (brain.txt), файл системной справки и текущую историю чата. Используя ТОЛЬКО эту информацию, найди точный ответ на поисковый запрос пользователя. Отвечай уверенно, ссылаясь на факты, без лишних вступлений.
+---
+[АРХИВ ПАМЯТИ]:
+$brainData
+---
+[СИСТЕМНАЯ СПРАВКА]:
+$helpData
+---
+[ТЕКУЩИЙ ЧАТ]:
+$currentChatData
+---
+ПОИСКОВЫЙ ЗАПРОС БАТИ:
+$query
+                """.trimIndent()
+
+                // 5. Перенаправляем сформированный ragPrompt в активный ИИ
+                runOnUiThread {
+                    if (checkButton.text.toString() == "ВЫКЛ МОЗГ") {
+                        // Пишем в текстовый мост для локалки
+                        try {
+                            val queryFile = File(filesDir, "brain_query.txt")
+                            queryFile.writeText(ragPrompt)
+                            setStatus("СТАТУС: ИЩЕТ В ПАМЯТИ...", "yellow")
+                            
+                            // Ждём ответ от локального движка
+                            var attempts = 0
+                            var response = ""
+                            val responseFile = File(filesDir, "brain_response.txt")
+                            
+                            while (attempts < 40) {
+                                Thread.sleep(300)
+                                val content = try { responseFile.readText().trim() } catch (e: Exception) { "" }
+                                if (content.isNotBlank()) {
+                                    response = content
+                                    responseFile.writeText("")
+                                    break
+                                }
+                                attempts++
+                            }
+                            
+                            if (response.isNotBlank()) {
+                                runOnUiThread {
+                                    appendChat("[НЕО]: $response")
+                                    speakText(response)
+                                    setStatus("Мозг активен | ${getMyAge()}", "green")
+                                }
+                            } else {
+                                runOnUiThread {
+                                    appendChat("[СИСТЕМА]: Таймаут поиска в локальной памяти")
+                                    setStatus("Ошибка", "red")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                appendChat("[СИСТЕМА ERROR]: Ошибка RAG-поиска в локальном режиме: ${e.message}")
+                                setStatus("Ошибка", "red")
+                            }
+                        }
+                    } else {
+                        // Отправляем в активный сетевой API (GigaChat / Облако)
+                        sendSilentCloudRequest(ragPrompt)
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    appendChat("[СИСТЕМА ERROR]: Ошибка сборки RAG-контекста: ${e.message}")
+                    setStatus("Ошибка", "red")
+                }
+            }
+        }.start()
+    }
+    
+    private fun sendSilentCloudRequest(prompt: String) {
+        val token = tokenInput.text.toString().trim()
+        if (token.isEmpty()) {
+            appendChat("[СИСТЕМА ERROR]: Нет токена для облачного ИИ")
+            setStatus("Ошибка", "red")
+            return
+        }
+        
+        val body = JsonObject().apply {
+            addProperty("model", if (currentApiUrl == apiUrlGigaChat) modelGigaChat else modelCloud)
+            val messagesArray = JsonArray().apply {
+                add(JsonObject().apply { 
+                    addProperty("role", "system")
+                    addProperty("content", "Ты - ИИ-ассистент. Отвечай строго по предоставленным данным.")
+                })
+                add(JsonObject().apply { 
+                    addProperty("role", "user")
+                    addProperty("content", prompt)
+                })
+            }
+            add("messages", messagesArray)
+            addProperty("temperature", 0.3)
+            addProperty("max_tokens", 800)
+        }
+        
+        val request = Request.Builder()
+            .url(currentApiUrl)
+            .header("Authorization", "Bearer $token")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+            
+        cloudClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { 
+                runOnUiThread {
+                    appendChat("[СИСТЕМА ERROR]: Ошибка запроса: ${e.message}")
+                    setStatus("Ошибка", "red")
+                }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val b = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    try {
+                        val content = gson.fromJson(b, JsonObject::class.java)
+                            .getAsJsonArray("choices")
+                            .get(0).asJsonObject
+                            .getAsJsonObject("message")
+                            .get("content").asString
+                        runOnUiThread {
+                            appendChat("[НЕО]: $content")
+                            speakText(content)
+                            setStatus("Онлайн | ${getMyAge()}", if (currentApiUrl == apiUrlGigaChat) "green" else "yellow")
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            appendChat("[СИСТЕМА ERROR]: Ошибка парсинга ответа: ${e.message}")
+                            setStatus("Ошибка", "red")
+                        }
+                    }
+                } else {
+                    runOnUiThread {
+                        appendChat("[СИСТЕМА ERROR]: HTTP ${response.code}")
+                        setStatus("Ошибка", "red")
+                    }
+                }
+                response.close()
+            }
+        })
+    }
+
+    // ===== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С ПАМЯТЬЮ =====
+    
+    private fun getLastChatLines(count: Int): String {
+        val fullChat = chatOutput.text.toString()
+        val lines = fullChat.split("\n")
+        val lastLines = if (lines.size > count) {
+            lines.takeLast(count)
+        } else {
+            lines
+        }
+        return lastLines.joinToString("\n")
+    }
+    
+    private fun buildCompressionPrompt(history: String): String {
+        return """
+[СИСТЕМНАЯ ДИРЕКТИВА]: Проанализируй следующие 500 строк текущего диалога Бати и ИИ. Логически сожми всю переписку, выдели только самые главные тезисы, важные факты, кодовые слова или принятые решения. Выдай короткий, плотный итог без лишней вежливости и вступлений.
+---
+[ИСТОРИЯ ЧАТА]:
+$history
+        """.trimIndent()
+    }
+    
+    private fun executeSilentAiQuery(prompt: String, callback: (String) -> Unit) {
+        val token = tokenInput.text.toString().trim()
+        
+        // Определяем, куда отправлять запрос
+        if (checkButton.text.toString() == "ВЫКЛ МОЗГ") {
+            // Локальный режим
+            Thread {
+                try {
+                    val queryFile = File(filesDir, "brain_query.txt")
+                    if (!queryFile.exists()) queryFile.createNewFile()
+                    queryFile.writeText(prompt)
+                    
+                    // Ждём ответ от локального движка
+                    var attempts = 0
+                    var response = ""
+                    val responseFile = File(filesDir, "brain_response.txt")
+                    
+                    while (attempts < 30) {
+                        Thread.sleep(200)
+                        val content = try { responseFile.readText().trim() } catch (e: Exception) { "" }
+                        if (content.isNotBlank()) {
+                            response = content
+                            responseFile.writeText("")
+                            break
+                        }
+                        attempts++
+                    }
+                    
+                    if (response.isNotBlank()) {
+                        callback(response)
+                    } else {
+                        callback("[ОШИБКА] Таймаут локального движка")
+                    }
+                } catch (e: Exception) {
+                    callback("[ОШИБКА] ${e.message}")
+                }
+            }.start()
+        } else if (token.isNotEmpty()) {
+            // Облачный режим
+            val body = JsonObject().apply {
+                addProperty("model", if (currentApiUrl == apiUrlGigaChat) modelGigaChat else modelCloud)
+                val messagesArray = JsonArray().apply {
+                    add(JsonObject().apply { 
+                        addProperty("role", "system")
+                        addProperty("content", "Ты - ИИ-ассистент. Выполняй команды строго по инструкции.")
+                    })
+                    add(JsonObject().apply { 
+                        addProperty("role", "user")
+                        addProperty("content", prompt)
+                    })
+                }
+                add("messages", messagesArray)
+                addProperty("temperature", 0.3)
+                addProperty("max_tokens", 500)
+            }
+            
+            val request = Request.Builder()
+                .url(currentApiUrl)
+                .header("Authorization", "Bearer $token")
+                .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+                
+            cloudClient.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) { 
+                    callback("[ОШИБКА] ${e.message}")
+                }
+                override fun onResponse(call: Call, response: Response) {
+                    val b = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        try {
+                            val content = gson.fromJson(b, JsonObject::class.java)
+                                .getAsJsonArray("choices")
+                                .get(0).asJsonObject
+                                .getAsJsonObject("message")
+                                .get("content").asString
+                            callback(content)
+                        } catch (e: Exception) {
+                            callback("[ОШИБКА] Парсинг: ${e.message}")
+                        }
+                    } else {
+                        callback("[ОШИБКА] HTTP ${response.code}")
+                    }
+                    response.close()
+                }
+            })
+        } else {
+            callback("[ОШИБКА] Нет токена для облачного ИИ")
+        }
     }
     
     private fun sendToCloud(msg: String, prompt: String) {
@@ -1719,6 +2336,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    // ===== ИСПРАВЛЕНО: speakText запоминает длину реплики для синхронизации скролла =====
     private fun speakText(text: String) {
         tts?.let {
             if (it.isSpeaking) { it.stop() }
@@ -1726,6 +2344,8 @@ class MainActivity : AppCompatActivity() {
                 .replace(Regex("\\[.*?\\]\\(.*?\\)"), "")
                 .replace(Regex("\\s+"), " ")
                 .trim()
+            // Фиксируем длину перед озвучиванием
+            ttsTextLength = cleanText.length
             it.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
         }
     }
