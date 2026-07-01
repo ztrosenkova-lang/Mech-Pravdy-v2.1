@@ -5,11 +5,12 @@ import android.util.Log
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.WritableNativeMap
 import com.facebook.react.bridge.ReadableMap
-import java.lang.reflect.Proxy
+import com.facebook.react.bridge.Promise
+import com.pocketpalai.llama.LlamaModule
 
 object LlamaJNI {
     private const val TAG = "MECH_LAMA"
-    private var llamaModuleInstance: Any? = null
+    private var llamaModule: LlamaModule? = null
     private var contextId: String? = null
     var isPredicting = false
 
@@ -17,42 +18,30 @@ object LlamaJNI {
 
     fun unloadModel() {
         contextId = null
-        llamaModuleInstance = null
+        llamaModule = null
         Log.d(TAG, "♻ Контекст модели успешно выгружен из ОЗУ.")
     }
 
-    // Динамическая сборка Promise через прокси для обхода проверок компилятора
-    private fun createDynamicPromise(onSuccess: (ReadableMap?) -> Unit): Any {
-        val promiseClass = Class.forName("com.facebook.react.bridge.Promise")
-        return Proxy.newProxyInstance(
-            promiseClass.classLoader,
-            arrayOf(promiseClass)
-        ) { _, method, args ->
-            if (method.name == "resolve") {
-                val result = args?.firstOrNull() as? ReadableMap
-                onSuccess(result)
-            }
-            if (method.name == "reject") {
-                Log.e(TAG, "⚠ Нативный метод отклонен.")
-            }
-            null
+    // Фабричный пустой Promise, чтобы убрать зависания потоков
+    private val emptyPromise = object : Promise {
+        override fun resolve(result: Any?) {
+            val map = result as? ReadableMap
+            contextId = map?.getString("context")
+            Log.d(TAG, "✅ Модель успешно проинициализирована: $contextId")
         }
+        override fun reject(code: String?, message: String?, throwable: Throwable?) {}
+        override fun reject(message: String?) {}
+        override fun reject(code: String?, message: String?) {}
+        override fun reject(code: String?, throwable: Throwable?) {}
+        override fun reject(throwable: Throwable?) {}
+        override fun reject(code: String?, message: String?, userInfo: com.facebook.react.bridge.WritableMap?) {}
+        override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: com.facebook.react.bridge.WritableMap?) {}
     }
 
     fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         try {
             val reactContext = ReactApplicationContext(androidContext)
-            
-            // Находим класс модуля в памяти, как бы его ни обозвал робот
-            val moduleClass = try {
-                Class.forName("com.rnllama.RNLlamaModule")
-            } catch (e: Exception) {
-                Class.forName("com.pocketpalai.llama.LlamaModule")
-            }
-
-            val constructor = moduleClass.getConstructor(ReactApplicationContext::class.java)
-            val instance = constructor.newInstance(reactContext)
-            llamaModuleInstance = instance
+            llamaModule = LlamaModule(reactContext)
 
             val params = WritableNativeMap().apply {
                 putString("model", modelPath)
@@ -65,33 +54,23 @@ object LlamaJNI {
                 putString("flash_attn_type", "off")
             }
 
-            var isSuccess = false
-            val latch = java.util.concurrent.CountDownLatch(1)
-
-            val dynamicPromise = createDynamicPromise { map ->
-                contextId = map?.getString("context")
-                isSuccess = contextId != null
-                latch.countDown()
-            }
-
-            val initMethod = moduleClass.getMethod(
-                "initContext", 
-                com.facebook.react.bridge.ReadableMap::class.java, 
-                Class.forName("com.facebook.react.bridge.Promise")
-            )
+            // Вызываем нативный метод инициализации контекста напрямую
+            llamaModule?.initContext(params, emptyPromise)
             
-            initMethod.invoke(instance, params, dynamicPromise)
-            latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
-            return isSuccess
+            // Даем С++ ядру 3 секунды на маппинг файла
+            Thread.sleep(3000)
+            
+            // Если ID контекста создался — модель успешно села в ОЗУ
+            return contextId != null
         } catch (e: Throwable) {
-            Log.e(TAG, "Критический сбой рефлексии JNI: ${e.message}")
+            Log.e(TAG, "Критический сбой JNI моста: ${e.message}")
             return false
         }
     }
 
     fun generate(prompt: String): String {
-        val instance = llamaModuleInstance ?: return "(Ошибка: Модель не загружена)"
-        val currentCtx = contextId ?: return "(Ошибка: Контекст пуст)"
+        val currentCtx = contextId ?: return "(Ошибка: Модель не загружена)"
+        val module = llamaModule ?: return "(Ошибка: Модуль мертв)"
         
         val responseBuilder = java.lang.StringBuilder()
         val latch = java.util.concurrent.CountDownLatch(1)
@@ -104,28 +83,28 @@ object LlamaJNI {
 
         isPredicting = true
 
-        try {
-            val dynamicPromise = createDynamicPromise { map ->
+        val completionPromise = object : Promise {
+            override fun resolve(result: Any?) {
+                val map = result as? ReadableMap
                 if (map != null && map.hasKey("text")) {
                     responseBuilder.append(map.getString("text"))
                 }
                 isPredicting = false
                 latch.countDown()
             }
-
-            val completionMethod = instance.javaClass.getMethod(
-                "completion", 
-                com.facebook.react.bridge.ReadableMap::class.java, 
-                Class.forName("com.facebook.react.bridge.Promise")
-            )
-
-            completionMethod.invoke(instance, params, dynamicPromise)
-            latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            isPredicting = false
-            latch.countDown()
+            override fun reject(code: String?, message: String?, throwable: Throwable?) { isPredicting = false; latch.countDown() }
+            override fun reject(message: String?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, message: String?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, throwable: Throwable?) { isPredicting = false; latch.countDown() }
+            override fun reject(throwable: Throwable?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, message: String?, userInfo: com.facebook.react.bridge.WritableMap?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: com.facebook.react.bridge.WritableMap?) { isPredicting = false; latch.countDown() }
         }
 
+        // Вызываем генерацию токенов
+        module.completion(params, completionPromise)
+
+        latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
         return responseBuilder.toString().trim()
     }
 }
