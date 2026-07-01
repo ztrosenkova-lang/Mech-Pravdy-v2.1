@@ -8,18 +8,16 @@ import com.facebook.react.bridge.WritableNativeMap
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.Promise
-// ИСПРАВЛЕНО: Правильный заводской импорт модуля из .aar библиотеки
-import com.rnllama.RNLlamaModule
+import com.pocketpalai.llama.LlamaModule
 
 object LlamaJNI {
     private const val TAG = "MECH_LAMA"
-    private var llamaModule: RNLlamaModule? = null
+    private var llamaModule: LlamaModule? = null
     private var contextId: String? = null
     var isPredicting = false
 
     fun isModelLoaded(): Boolean = contextId != null
 
-    // Метод выгрузки модели, который забыл робот
     fun unloadModel() {
         contextId = null
         llamaModule = null
@@ -29,7 +27,7 @@ object LlamaJNI {
     fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         try {
             val reactContext = ReactApplicationContext(androidContext)
-            llamaModule = RNLlamaModule(reactContext)
+            llamaModule = LlamaModule(reactContext)
 
             val params = WritableNativeMap().apply {
                 putString("model", modelPath)
@@ -52,7 +50,7 @@ object LlamaJNI {
                     isSuccess = contextId != null
                     latch.countDown()
                 }
-                // ИСПРАВЛЕНО: Полная реализация всех методов Promise, чтоб не ругался компилятор
+
                 override fun reject(code: String?, message: String?, throwable: Throwable?) { latch.countDown() }
                 override fun reject(message: String?) { latch.countDown() }
                 override fun reject(code: String?, message: String?) { latch.countDown() }
@@ -60,6 +58,7 @@ object LlamaJNI {
                 override fun reject(throwable: Throwable?) { latch.countDown() }
                 override fun reject(code: String?, message: String?, userInfo: WritableMap?) { latch.countDown() }
                 override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) { latch.countDown() }
+                override fun reject(code: String?, throwable: Throwable?, userInfo: WritableMap?) { latch.countDown() }
             })
 
             latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -94,7 +93,7 @@ object LlamaJNI {
                 isPredicting = false
                 latch.countDown()
             }
-            // ИСПРАВЛЕНО: Полная реализация дефолтных методов Promise
+
             override fun reject(code: String?, message: String?, throwable: Throwable?) { isPredicting = false; latch.countDown() }
             override fun reject(message: String?) { isPredicting = false; latch.countDown() }
             override fun reject(code: String?, message: String?) { isPredicting = false; latch.countDown() }
@@ -102,6 +101,7 @@ object LlamaJNI {
             override fun reject(throwable: Throwable?) { isPredicting = false; latch.countDown() }
             override fun reject(code: String?, message: String?, userInfo: WritableMap?) { isPredicting = false; latch.countDown() }
             override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, throwable: Throwable?, userInfo: WritableMap?) { isPredicting = false; latch.countDown() }
         })
 
         latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
