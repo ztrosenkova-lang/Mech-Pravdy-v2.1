@@ -18,7 +18,7 @@ class BrainOverlayService : Service() {
 
     // ===== УДАЛЕН companion object с System.loadLibrary("rnllama") =====
 
-    private lateinit var windowManager: WindowManager
+    private var windowManager: WindowManager? = null
     private var floatingView: TextView? = null
     private val handler = Handler(Looper.getMainLooper())
 
@@ -26,7 +26,15 @@ class BrainOverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val modelPath = intent?.getStringExtra("MODEL_PATH")
-        val file = modelPath?.let { java.io.File(it) }
+        
+        // ИСПРАВЛЕНО: Если сервис запущен рантаймом автоматически без параметров — гасим его мгновенно!
+        if (modelPath.isNullOrEmpty()) {
+            android.util.Log.w("MECH_BRAIN", "⚠ Фоновый автозапуск заблокирован. Ожидание клика Бати.")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
+        val file = java.io.File(modelPath)
 
         // 1. ПРОВЕРКА НАЛИЧИЯ И ДОСТУПА К ФАЙЛУ
         if (modelPath.isNullOrEmpty() || file == null || !file.exists() || file.length() < 10 * 1024 * 1024) {
@@ -41,7 +49,45 @@ class BrainOverlayService : Service() {
             return START_STICKY
         }
 
-        // 2. ВЫВОД СТАТУСА НАЧАЛА ЗАГРУЗКИ
+        // ИСПРАВЛЕНО: Создаем и выводим оверлей на экран ТОЛЬКО тогда, когда файл модели реально прошел проверку!
+        if (floatingView == null) {
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            floatingView = TextView(this).apply {
+                text = "НЕО: МОЗГ"
+                setTextColor(Color.parseColor("#1A8A2E"))
+                setPadding(24, 16, 24, 16)
+                textSize = 12f
+                
+                val shape = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.parseColor("#C0FFFFFF"))
+                    cornerRadius = 24f
+                    setStroke(2, Color.parseColor("#1A8A2E"))
+                }
+                background = shape
+            }
+
+            val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                layoutFlag,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                x = 0 
+                y = 120
+            }
+
+            windowManager?.addView(floatingView, params)
+        }
+
+        // 2. ВЫВОД СТАТУСА НАЧАЛА ЗАГРУЗКИ ВЕСОВ ЛОКАЛЬНОГО ИИ
         handler.post { floatingView?.text = "НЕО: ЗАГРУЗКА..." }
 
         // 3. ЕДИНСТВЕННЫЙ БОЕВОЙ ЦИКЛ В ФОНОВОМ ПОТОКЕ
@@ -94,47 +140,18 @@ class BrainOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
-        floatingView = TextView(this).apply {
-            text = "НЕО: МОЗГ"
-            setTextColor(Color.parseColor("#1A8A2E"))
-            setPadding(24, 16, 24, 16)
-            textSize = 12f
-            
-            val shape = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.parseColor("#C0FFFFFF"))
-                cornerRadius = 24f
-                setStroke(2, Color.parseColor("#1A8A2E"))
-            }
-            background = shape
-        }
-
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            x = 0 
-            y = 120
-        }
-
-        windowManager.addView(floatingView, params)
+        // Оставляем метод пустым, графику тут не создаем!
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        floatingView?.let { windowManager.removeView(it) }
-        
+        if (floatingView != null && windowManager != null) {
+            try {
+                windowManager?.removeView(floatingView)
+            } catch (e: Exception) {
+                android.util.Log.e("MECH_BRAIN", "Ошибка удаления оверлея: ${e.message}")
+            }
+        }
         try {
             LlamaJNI.unloadModel()
         } catch (_: Exception) {}
