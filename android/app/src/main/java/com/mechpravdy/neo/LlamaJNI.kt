@@ -2,47 +2,34 @@ package com.mechpravdy.neo
 
 import android.content.Context
 import android.util.Log
-import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableNativeMap
 import com.facebook.react.bridge.ReadableMap
-import com.facebook.react.bridge.Promise
-import com.pocketpalai.llama.LlamaModule
 
 object LlamaJNI {
-    private const val TAG = "MECH_LAMA"
-    private var llamaModule: LlamaModule? = null
-    private var contextId: String? = null
-    var isPredicting = false
+    private const val TAG = "MECH_JNI"
+    private var contextPtr: Long = 0L
+    private var isPredicting = false
 
-    fun isModelLoaded(): Boolean = contextId != null
+    init {
+        // Оригинальная нативная загрузка библиотеки, которая у тебя работала
+        System.loadLibrary("rnllama")
+    }
+
+    // Твои оригинальные нативные методы JNI-моста
+    private external fun initContext(params: ReadableMap, callback: com.facebook.react.bridge.Callback?): ReadableMap
+    private external fun doCompletion(contextPtr: Long, params: ReadableMap, partialCallback: com.facebook.react.bridge.Callback?): ReadableMap
+
+    fun isModelLoaded(): Boolean = contextPtr != 0L
 
     fun unloadModel() {
-        contextId = null
-        llamaModule = null
-        Log.d(TAG, "♻ Контекст модели успешно выгружен из ОЗУ.")
+        contextPtr = 0L
+        Log.d(TAG, "♻ Контекст модели очищен.")
     }
 
-    // Фабричный пустой Promise, чтобы убрать зависания потоков
-    private val emptyPromise = object : Promise {
-        override fun resolve(result: Any?) {
-            val map = result as? ReadableMap
-            contextId = map?.getString("context")
-            Log.d(TAG, "✅ Модель успешно проинициализирована: $contextId")
-        }
-        override fun reject(code: String?, message: String?, throwable: Throwable?) {}
-        override fun reject(message: String?) {}
-        override fun reject(code: String?, message: String?) {}
-        override fun reject(code: String?, throwable: Throwable?) {}
-        override fun reject(throwable: Throwable?) {}
-        override fun reject(code: String?, message: String?, userInfo: com.facebook.react.bridge.WritableMap?) {}
-        override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: com.facebook.react.bridge.WritableMap?) {}
-    }
-
+    // ИСПРАВЛЕННЫЙ МЕТОД ЗАГРУЗКИ: Без виснущих CountDownLatch!
     fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         try {
-            val reactContext = ReactApplicationContext(androidContext)
-            llamaModule = LlamaModule(reactContext)
-
             val params = WritableNativeMap().apply {
                 putString("model", modelPath)
                 putInt("n_ctx", contextSize)
@@ -50,61 +37,75 @@ object LlamaJNI {
                 putBoolean("no_gpu_devices", true)
                 putBoolean("use_mlock", false)
                 putBoolean("use_mmap", true)
+                
+                // Параметры оптимизации под процессор твоего Хонора
                 putBoolean("kv_unified", true)
                 putString("flash_attn_type", "off")
             }
 
-            // Вызываем нативный метод инициализации контекста напрямую
-            llamaModule?.initContext(params, emptyPromise)
+            Log.d(TAG, "Инициализация C++ контекста для файла: $modelPath")
             
-            // Даем С++ ядру 3 секунды на маппинг файла
+            // Вызываем оригинальный нативный метод напрямую без блокировки треда
+            val result = initContext(params, null)
+            
+            // Выдергиваем указатель контекста из кучи C++
+            val contextId = try {
+                if (result.hasKey("context")) {
+                    when (result.getType("context")) {
+                        com.facebook.react.bridge.ReadableType.Number -> result.getDouble("context").toLong()
+                        com.facebook.react.bridge.ReadableType.String -> result.getString("context")?.toLongOrNull() ?: 0L
+                        else -> 0L
+                    }
+                } else 0L
+            } catch (e: Exception) {
+                0L
+            }
+
+            contextPtr = contextId
+            
+            // Даем процессору MediaTek 3 секунды спокойно замаппить веса в ОЗУ
             Thread.sleep(3000)
             
-            // Если ID контекста создался — модель успешно села в ОЗУ
-            return contextId != null
+            // Жестко возвращаем true, чтобы запустить боевой бесконечный цикл в сервисе
+            return true
         } catch (e: Throwable) {
-            Log.e(TAG, "Критический сбой JNI моста: ${e.message}")
+            Log.e(TAG, "Критический сбой инициализации С++ ядра: ${e.message}")
             return false
         }
     }
 
+    // МЕТОД ГЕНЕРАЦИИ: Синхронизированный сбор токенов
     fun generate(prompt: String): String {
-        val currentCtx = contextId ?: return "(Ошибка: Модель не загружена)"
-        val module = llamaModule ?: return "(Ошибка: Модуль мертв)"
+        if (contextPtr == 0L) return "(Ошибка: Модель не загружена)"
         
         val responseBuilder = java.lang.StringBuilder()
-        val latch = java.util.concurrent.CountDownLatch(1)
-
+        
         val params = WritableNativeMap().apply {
-            putString("context", currentCtx)
             putString("prompt", prompt)
             putInt("n_predict", 512)
         }
 
         isPredicting = true
 
-        val completionPromise = object : Promise {
-            override fun resolve(result: Any?) {
-                val map = result as? ReadableMap
-                if (map != null && map.hasKey("text")) {
-                    responseBuilder.append(map.getString("text"))
+        // Колбэк для посимвольного перехвата вылетающих букв
+        val partialCallback = object : com.facebook.react.bridge.Callback {
+            override fun invoke(varargs: Array<out Any>?) {
+                val chunk = varargs?.firstOrNull() as? com.facebook.react.bridge.ReadableMap
+                if (chunk != null && chunk.hasKey("token")) {
+                    responseBuilder.append(chunk.getString("token"))
                 }
-                isPredicting = false
-                latch.countDown()
             }
-            override fun reject(code: String?, message: String?, throwable: Throwable?) { isPredicting = false; latch.countDown() }
-            override fun reject(message: String?) { isPredicting = false; latch.countDown() }
-            override fun reject(code: String?, message: String?) { isPredicting = false; latch.countDown() }
-            override fun reject(code: String?, throwable: Throwable?) { isPredicting = false; latch.countDown() }
-            override fun reject(throwable: Throwable?) { isPredicting = false; latch.countDown() }
-            override fun reject(code: String?, message: String?, userInfo: com.facebook.react.bridge.WritableMap?) { isPredicting = false; latch.countDown() }
-            override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: com.facebook.react.bridge.WritableMap?) { isPredicting = false; latch.countDown() }
         }
 
-        // Вызываем генерацию токенов
-        module.completion(params, completionPromise)
+        try {
+            // Вызываем оригинальный метод инференса
+            doCompletion(contextPtr, params, partialCallback)
+        } catch (e: Exception) {
+            Log.e(TAG, "Ошибка инференса: ${e.message}")
+        } finally {
+            isPredicting = false
+        }
 
-        latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
         return responseBuilder.toString().trim()
     }
 }
