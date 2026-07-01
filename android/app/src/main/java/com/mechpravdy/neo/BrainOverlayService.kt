@@ -6,11 +6,9 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
-import android.os.FileObserver
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.Process
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
@@ -18,15 +16,10 @@ import java.io.File
 
 class BrainOverlayService : Service() {
 
-    companion object {
-        init {
-            System.loadLibrary("rnllama")
-        }
-    }
+    // ===== УДАЛЕН companion object с System.loadLibrary("rnllama") =====
 
     private lateinit var windowManager: WindowManager
     private var floatingView: TextView? = null
-    private var queryObserver: FileObserver? = null
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -42,27 +35,62 @@ class BrainOverlayService : Service() {
             return START_STICKY
         }
 
-        // Проверяем, может ли приложение физически прочитать этот файл с диска
         if (!file.canRead()) {
             android.util.Log.e("MECH_BRAIN", "Ошибка доступа! Файл не может быть прочитан: $modelPath")
             handler.post { floatingView?.text = "НЕО: ОШИБКА ДОСТУПА" }
             return START_STICKY
         }
 
-        // 2. ВЫВОД СТАТУСА НАЧАЛА ЗАГРУЗКИ ВЕСОВ
-        // Как только проверка пройдена, на экране мгновенно загорится этот статус
+        // 2. ВЫВОД СТАТУСА НАЧАЛА ЗАГРУЗКИ
         handler.post { floatingView?.text = "НЕО: ЗАГРУЗКА..." }
 
-        // 3. ЗАПУСК НА ТИВНОГО C++ ДВИЖКА В ФОНЕ
+        // 3. ЕДИНСТВЕННЫЙ БОЕВОЙ ЦИКЛ В ФОНОВОМ ПОТОКЕ
         Thread {
             try {
-                // Передаем контекст (this), путь к файлу и размер контекста 4096
+                // Загружаем модель
                 val ok = LlamaJNI.loadModel(this, modelPath, 4096)
+                
                 handler.post {
                     floatingView?.text = if (ok) "НЕО: ГОТОВ" else "НЕО: ОШИБКА ДВИЖКА"
                 }
+
+                if (ok) {
+                    val queryFile = File(filesDir, "brain_query.txt")
+                    val responseFile = File(filesDir, "brain_response.txt")
+
+                    // ЕДИНСТВЕННЫЙ БОЕВОЙ ЦИКЛ СКАНЕРА
+                    while (LlamaJNI.isModelLoaded()) {
+                        Thread.sleep(250) // Защита CPU от перегрева
+
+                        if (queryFile.exists()) {
+                            val rawPrompt = queryFile.readText().trim()
+                            
+                            if (rawPrompt.isNotBlank()) {
+                                // Команда на выгрузку — разрываем цикл
+                                if (rawPrompt == "COMMAND_UNLOAD_MODEL") {
+                                    queryFile.writeText("")
+                                    break
+                                }
+
+                                // Локальный ИИ начинает вычисления
+                                handler.post { floatingView?.text = "НЕО: ДУМАЕТ..." }
+                                
+                                // Чистим файл запроса, чтобы избежать повторного чтения
+                                queryFile.writeText("")
+
+                                // Генерируем ответ через JNI с колбэком
+                                val aiResponse = LlamaJNI.generate(rawPrompt)
+
+                                // Пишем готовый ответ в мост для MainActivity
+                                responseFile.writeText(aiResponse)
+                                
+                                handler.post { floatingView?.text = "НЕО: ГОТОВ" }
+                            }
+                        }
+                    }
+                }
             } catch (e: Throwable) {
-                android.util.Log.e("MECH_BRAIN", "Критический краш при чтении весов: ${e.message}")
+                android.util.Log.e("MECH_BRAIN", "Критический краш потока инференса: ${e.message}")
                 handler.post { floatingView?.text = "НЕО: КРАШ ДВИЖКА" }
             }
         }.start()
@@ -107,41 +135,10 @@ class BrainOverlayService : Service() {
         }
 
         windowManager.addView(floatingView, params)
-
-        val queryFile = File(filesDir, "brain_query.txt")
-        val responseFile = File(filesDir, "brain_response.txt")
-
-        queryObserver = object : FileObserver(queryFile.path, CLOSE_WRITE) {
-            override fun onEvent(event: Int, path: String?) {
-                val queryText = try { queryFile.readText().trim() } catch (_: Exception) { "" }
-                if (queryText.isNotBlank()) {
-                    try { queryFile.writeText("") } catch (_: Exception) {}
-
-                    Thread {
-                        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-                        try {
-                            // ===== ИСПРАВЛЕНИЕ ГЕНЕРАЦИИ =====
-                            // Убрали число 512, метод принимает только текст
-                            val aiResponse = if (LlamaJNI.isModelLoaded()) {
-                                LlamaJNI.generate(queryText) // ТОЛЬКО ОДИН ПАРАМЕТР!
-                            } else {
-                                "[МОЗГ] Ошибка: GGUF модель не загружена в память процесса."
-                            }
-                            // ===== КОНЕЦ ИСПРАВЛЕНИЯ =====
-                            responseFile.writeText(aiResponse)
-                        } catch (e: Exception) {
-                            try { responseFile.writeText("[ОШИБКА GGUF] ${e.message}") } catch (_: Exception) {}
-                        }
-                    }.start()
-                }
-            }
-        }
-        queryObserver?.startWatching()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        queryObserver?.stopWatching()
         floatingView?.let { windowManager.removeView(it) }
         
         try {
