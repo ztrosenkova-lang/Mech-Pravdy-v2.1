@@ -6,19 +6,26 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.WritableNativeMap
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.Promise
-import com.pocketpalai.llama.RNLlamaModule
+// ИСПРАВЛЕНО: Правильный заводской импорт модуля из .aar библиотеки
+import com.rnllama.RNLlamaModule
 
 object LlamaJNI {
     private const val TAG = "MECH_LAMA"
     private var llamaModule: RNLlamaModule? = null
     private var contextId: String? = null
-    private var isPredicting = false
+    var isPredicting = false
 
-    // Проверка, сидит ли модель в памяти процесса
     fun isModelLoaded(): Boolean = contextId != null
 
-    // Загрузка модели строго по спецификации RNLlamaModule
+    // Метод выгрузки модели, который забыл робот
+    fun unloadModel() {
+        contextId = null
+        llamaModule = null
+        Log.d(TAG, "♻ Контекст модели успешно выгружен из ОЗУ.")
+    }
+
     fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         try {
             val reactContext = ReactApplicationContext(androidContext)
@@ -38,24 +45,21 @@ object LlamaJNI {
             var isSuccess = false
             val latch = java.util.concurrent.CountDownLatch(1)
 
-            // Вызов заводского метода инициализации контекста
             llamaModule?.initContext(params, object : Promise {
                 override fun resolve(result: Any?) {
                     val map = result as? ReadableMap
                     contextId = map?.getString("context")
                     isSuccess = contextId != null
-                    Log.d(TAG, "✅ Модель успешно загружена. ID: $contextId")
                     latch.countDown()
                 }
-                override fun reject(code: String?, message: String?, throwable: Throwable?) {
-                    Log.e(TAG, "❌ Ошибка C++ ядра: $message")
-                    contextId = null
-                    latch.countDown()
-                }
+                // ИСПРАВЛЕНО: Полная реализация всех методов Promise, чтоб не ругался компилятор
+                override fun reject(code: String?, message: String?, throwable: Throwable?) { latch.countDown() }
                 override fun reject(message: String?) { latch.countDown() }
                 override fun reject(code: String?, message: String?) { latch.countDown() }
                 override fun reject(code: String?, throwable: Throwable?) { latch.countDown() }
                 override fun reject(throwable: Throwable?) { latch.countDown() }
+                override fun reject(code: String?, message: String?, userInfo: WritableMap?) { latch.countDown() }
+                override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) { latch.countDown() }
             })
 
             latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -66,7 +70,6 @@ object LlamaJNI {
         }
     }
 
-    // Синхронизированная генерация через Promise-колбэки PocketPal
     fun generate(prompt: String): String {
         val currentCtx = contextId ?: return "(Ошибка: Модель не загружена)"
         val module = llamaModule ?: return "(Ошибка: Модуль мертв)"
@@ -91,14 +94,14 @@ object LlamaJNI {
                 isPredicting = false
                 latch.countDown()
             }
-            override fun reject(code: String?, message: String?, throwable: Throwable?) {
-                isPredicting = false
-                latch.countDown()
-            }
-            override fun reject(message: String?) { latch.countDown() }
-            override fun reject(code: String?, message: String?) { latch.countDown() }
-            override fun reject(code: String?, throwable: Throwable?) { latch.countDown() }
-            override fun reject(throwable: Throwable?) { latch.countDown() }
+            // ИСПРАВЛЕНО: Полная реализация дефолтных методов Promise
+            override fun reject(code: String?, message: String?, throwable: Throwable?) { isPredicting = false; latch.countDown() }
+            override fun reject(message: String?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, message: String?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, throwable: Throwable?) { isPredicting = false; latch.countDown() }
+            override fun reject(throwable: Throwable?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, message: String?, userInfo: WritableMap?) { isPredicting = false; latch.countDown() }
+            override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) { isPredicting = false; latch.countDown() }
         })
 
         latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
