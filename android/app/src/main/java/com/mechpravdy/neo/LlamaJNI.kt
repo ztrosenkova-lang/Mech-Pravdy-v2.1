@@ -54,7 +54,7 @@ object LlamaJNI {
 
     fun isLoaded(): Boolean = isLibraryLoaded
 
-    // ИСПРАВЛЕНО: добавлен androidContext и contextSize
+    // ===== ИСПРАВЛЕНО: Полностью переписан loadModel с параметрами PocketPal =====
     fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         if (!isLibraryLoaded) {
             Log.e(TAG, "❌ Native library not loaded")
@@ -77,27 +77,26 @@ object LlamaJNI {
                 reactContext = null
             }
 
-            // ИСПРАВЛЕНО: Отключаем падение по GPU слоям, переводим Gemma 2 на CPU
-            // ИСПРАВЛЕНО: use_mlock = false для предотвращения убийства процесса менеджером памяти
-            // ИСПРАВЛЕНО: используем WritableNativeMap вместо Arguments.createMap()
+            // СТРОГО ПО ИНСТРУКЦИИ POCKETPAL ДЛЯ ANDROID:
             val params = WritableNativeMap().apply {
                 putString("model", modelPath)
-                putBoolean("use_mlock", false)              // ← ИСПРАВЛЕНО: отключаем блокировку памяти
+                putInt("n_ctx", contextSize)
+                putInt("n_gpu_layers", 0)               // Строго CPU-инференс для Хонора
+                putBoolean("no_gpu_devices", true)
+                putBoolean("use_mlock", false)          // Защита от убийства процесса системой MagicUI
+                putBoolean("use_mmap", true)            // Чтение кусками с флешки (песочницы)
                 putBoolean("embedding", false)
-                putBoolean("use_mmap", true)
-                putInt("n_ctx", contextSize)                // ← ИСПРАВЛЕНО: теперь будет работать и 4096, и авто-ноль!
-                putInt("n_gpu_layers", 0)                   // ← CPU только
-                putBoolean("no_gpu_devices", true)          // ← GPU отключён
+                
+                // СТРОГО ПО ИНСТРУКЦИИ POCKETPAL ДЛЯ ANDROID:
+                putBoolean("kv_unified", true)          // Объединяем KV-кэш в монолит
+                putString("flash_attn_type", "off")     // Гасим Flash Attention во избежание краша
             }
 
-            // Передаём androidContext в инициализатор PocketPal через params
-            // (нативная сторона получит контекст через ReactContext)
             val result = initContext(params, null)
             
-            // ИСПРАВЛЕНО: Безопасный разбор без жесткого ClassCastException к ReadableMap
+            // Безопасный разбор указателя контекста из кучи C++
             val contextId = try {
                 if (result.hasKey("context")) {
-                    // Проверяем тип данных (в PocketPal это может быть либо Double, либо String)
                     when (result.getType("context")) {
                         ReadableType.Number -> result.getDouble("context").toLong()
                         ReadableType.String -> result.getString("context")?.toLongOrNull() ?: 0L
@@ -119,12 +118,13 @@ object LlamaJNI {
             isModelLoaded = true
             Log.d(TAG, "✅ Model loaded: $modelPath with contextSize=$contextSize")
             true
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error loading model: ${e.message}")
+        } catch (e: Throwable) {
+            Log.e(TAG, "❌ Критический сбой инициализации С++ ядра: ${e.message}")
             false
         }
     }
 
+    // ===== ИСПРАВЛЕНО: Полностью переписан generate с JNI-колбэком =====
     fun generate(prompt: String, maxTokens: Int = 512): String {
         if (!isModelLoaded || contextPtr == 0L) {
             return "Ошибка: модель не загружена"
@@ -137,7 +137,6 @@ object LlamaJNI {
             }
 
             // ИСПРАВЛЕНО: Оптимальные параметры пакетов под 6 ГБ ОЗУ
-            // ИСПРАВЛЕНО: используем WritableNativeMap вместо Arguments.createMap()
             val params = WritableNativeMap().apply {
                 putString("prompt", prompt)
                 putInt("n_predict", maxTokens)
@@ -146,31 +145,44 @@ object LlamaJNI {
                 putInt("top_k", 40)
                 putInt("n_threads", 4)      // ← ровно 4 производительных ядра
                 putInt("n_batch", 128)      // ← урезаем до 128 для разгрузки шины памяти
-                putBoolean("emit_partial_completion", false)
+                putBoolean("emit_partial_completion", true)  // ← ВКЛЮЧАЕМ потоковую отдачу
             }
 
-            // Вызываем doCompletion
-            val result = doCompletion(contextPtr, params, null)
-            
-            // Получаем текст ответа — безопасный парсинг
-            val text = try {
-                if (result.hasKey("text")) {
-                    when (result.getType("text")) {
-                        ReadableType.String -> result.getString("text")
-                        else -> null
+            // Создаем колбэк для перехвата токенов
+            val responseBuilder = StringBuilder()
+            val partialCallback = object : com.facebook.react.bridge.Callback {
+                override fun invoke(varargs: Array<out Any>?) {
+                    try {
+                        val chunk = varargs?.firstOrNull() as? com.facebook.react.bridge.ReadableMap
+                        if (chunk != null && chunk.hasKey("token")) {
+                            responseBuilder.append(chunk.getString("token"))
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Ошибка в колбэке токена: ${e.message}")
                     }
-                } else null
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Ошибка парсинга ответа: ${e.message}")
-                null
+                }
             }
 
-            if (text.isNullOrEmpty()) {
-                "(пустой ответ)"
-            } else {
-                text
+            // Передаем колбэк в C++ ядро
+            doCompletion(contextPtr, params, partialCallback)
+
+            // Ждем завершения генерации с таймаутом
+            var attempts = 0
+            val maxAttempts = 600  // 60 секунд при 100 мс на попытку
+            while (isPredicting(contextPtr) && attempts < maxAttempts) {
+                Thread.sleep(100)
+                attempts++
             }
-        } catch (e: Exception) {
+
+            if (attempts >= maxAttempts) {
+                Log.w(TAG, "⚠️ Таймаут генерации, принудительная остановка")
+                stopCompletion(contextPtr)
+                return responseBuilder.toString().trim().ifEmpty { "(таймаут генерации)" }
+            }
+
+            responseBuilder.toString().trim().ifEmpty { "(пустой ответ)" }
+        } catch (e: Throwable) {
+            Log.e(TAG, "❌ Критическая ошибка генерации: ${e.message}")
             "Ошибка генерации: ${e.message}"
         }
     }
