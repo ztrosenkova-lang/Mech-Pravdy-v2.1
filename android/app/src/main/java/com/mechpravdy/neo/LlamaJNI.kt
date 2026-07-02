@@ -2,7 +2,7 @@ package com.mechpravdy.neo
 
 import android.content.Context
 import android.util.Log
-import io.github.ljcamargo.llamacppkt.LlamaModel // Импорт из новой чистой либы
+import io.github.ljcamargo.llamacppkt.LlamaModel
 
 object LlamaJNI {
     private const val TAG = "MECH_LAMA_NATIVE"
@@ -16,20 +16,19 @@ object LlamaJNI {
             nativeModel?.close()
         } catch (_: Exception) {}
         nativeModel = null
-        Log.d(TAG, "♻ Нативная модель выгружена из памяти.")
+        Log.d(TAG, "♻ Нативная С++ модель полностью выгружена из ОЗУ.")
     }
 
     fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         try {
-            unloadModel() // Чистим старый контекст перед загрузкой
+            unloadModel() // Принудительно чистим ОЗУ перед новой загрузкой
             Log.d(TAG, "Загрузка весов через чистый C++: $modelPath")
             
-            // Нативный запуск модели в один вызов, без зависающих колбэков!
+            // Жесткий нативный запуск модели в один вызов, без зависающих JS-колбэков!
             nativeModel = LlamaModel(modelPath, contextSize)
-            
             return nativeModel != null
         } catch (e: Throwable) {
-            Log.e(TAG, "Критический сбой загрузки нативного ядра: ${e.message}")
+            Log.e(TAG, "Критический сбой загрузки нативного ядра llama.cpp: ${e.message}")
             return false
         }
     }
@@ -40,7 +39,7 @@ object LlamaJNI {
         return try {
             val responseBuilder = java.lang.StringBuilder()
             
-            // Потоковая нативная генерация токенов напрямую в Kotlin Flow / Sequence
+            // Нативная потоковая генерация токенов напрямую в Kotlin
             model.generate(prompt).forEach { token ->
                 responseBuilder.append(token)
             }
