@@ -31,12 +31,12 @@ subprojects {
     afterEvaluate { project ->
         if (project.hasProperty("android")) {
             project.android {
-                // 1. Исправляет ошибку отсутствия Namespace в старых библиотеках node_modules
+                // ИСПРАВЛЕНО: Чистый Groovy-синтаксис проверки пустой строки вместо Kotlin-методов!
                 if (namespace == null) {
-                    namespace = project.group.toString().isNotBlank() ? project.group.toString() : "com.rnllama"
+                    namespace = (project.group && project.group.toString().trim() != "") ? project.group.toString() : "com.rnllama"
                 }
                 
-                // 2. Исправляет прошлую ошибку с BuildConfig fields
+                // Активируем генерацию полей BuildConfig для всех библиотек
                 buildFeatures {
                     buildConfig = true
                 }
