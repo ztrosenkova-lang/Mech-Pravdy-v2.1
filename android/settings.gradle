@@ -5,14 +5,12 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PRESERVE_EXISTING)
+    // ИСПРАВЛЕНО: убрали конфликтующий PRESERVE_EXISTING под требования Gradle 8.3
     repositories {
         google()
         mavenCentral()
     }
 }
-
 rootProject.name = "Mech-Pravdy-v2.1"
 include ':app'
