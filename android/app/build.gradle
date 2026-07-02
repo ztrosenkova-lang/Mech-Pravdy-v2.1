@@ -73,4 +73,7 @@ dependencies {
     // Вернуть нативные модули распознавания текста
     implementation "com.google.mlkit:text-recognition:16.0.0"
     implementation "com.google.mlkit:text-recognition-chinese:16.0.0"
+
+    // СВЯЗУЮЩИЙ РУБИЛЬНИК: Подключаем нативную библиотеку PocketPal напрямую из node_modules!
+    implementation project(':@pocketpalai_llama.rn')
 }
