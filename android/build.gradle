@@ -31,15 +31,19 @@ subprojects {
     afterEvaluate { project ->
         if (project.hasProperty("android")) {
             project.android {
-                if (namespace == null) {
+                // ИСПРАВЛЕНО: Жестко задаем чистый и валидный Java-namespace без дефисов для проблемного модуля!
+                if (project.name == "pocketpalai_llama.rn" || project.name.contains("llama")) {
+                    namespace = "com.rnllama"
+                } else if (namespace == null) {
                     namespace = (project.group && project.group.toString().trim() != "") ? project.group.toString() : "com.rnllama"
                 }
+                
                 buildFeatures {
                     buildConfig = true
                 }
             }
             
-            // ЖЕСТКИЙ ХУК: Автоматически вырезает запрещенный "package" из манифеста PocketPal перед сборкой!
+            // Хук автоматического удаления запрещенного "package" из манифеста подпроекта
             if (project.name == "pocketpalai_llama.rn" || project.name.contains("llama")) {
                 project.tasks.matching { it.name.startsWith("process") && it.name.contains("Manifest") }.all { task ->
                     task.doFirst {
@@ -47,7 +51,6 @@ subprojects {
                         if (manifestFile.exists()) {
                             def content = manifestFile.getText("UTF-8")
                             if (content.contains("package=")) {
-                                // Полностью вырезаем декларацию package из XML структуры
                                 content = content.replaceAll(/package="[^"]*"/, "")
                                 manifestFile.write(content, "UTF-8")
                                 logger.quiet("🚀 [СИСТЕМА]: Запрещенный атрибут package успешно удален из манифеста подпроекта!")
