@@ -26,6 +26,8 @@ android {
     
     kotlinOptions {
         jvmTarget = '17'
+        // ИСПРАВЛЕНО ДЛЯ СТРИМА: Системный хук, который принудительно затыкает компилятор и заставляет его видеть все методы (apply, readText, trim)!
+        freeCompilerArgs += ["-Xskip-metadata-version-check"]
     }
 
     defaultConfig {
