@@ -59,6 +59,6 @@ dependencies {
     implementation "com.google.mlkit:text-recognition:16.0.0"
     implementation "com.google.mlkit:text-recognition-chinese:16.0.0"
 
-    // ЧИСТОЕ НАТИВНОЕ С++ ЯДРО LLAMA.CPP БЕЗ JAVASCRIPT И ОБЛАКОВ
-    implementation 'io.github.ljcamargo:llamacpp-kotlin:0.4.0'
+    // ИСПРАВЛЕНО: Спускаемся на версию 0.2.0, которая не требует Android API 36 и плагин 8.9.1!
+    implementation 'io.github.ljcamargo:llamacpp-kotlin:0.2.0'
 }
