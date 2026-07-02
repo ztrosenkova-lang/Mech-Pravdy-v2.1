@@ -1,23 +1,13 @@
 plugins {
     id("com.android.application")
-    id("com.facebook.react")
     id("org.jetbrains.kotlin.android")
 }
 
-react {
-    // ЗАВОДСКОЙ СТАНДАРТ: JS-корень теперь находится на два уровня выше папки app!
-    root = file("../../")
-    reactNativeDir = file("../../node_modules/react-native")
-    codegenDir = file("../../node_modules/@react-native/codegen")
-}
-
 def enableProguardInReleaseBuilds = true
-def jscFlavor = 'org.webkit:android-jsc:+'
 
 android {
     namespace "com.mechpravdy.neo"
     
-    // ЖЕСТКОЕ ОБЪЯВЛЕНИЕ ВЕРСИЙ SDK ПО ЗАВОДУ:
     compileSdkVersion 34
     buildToolsVersion "34.0.0"
 
@@ -57,10 +47,6 @@ dependencies {
     implementation "com.google.android.material:material:1.11.0"
     implementation "org.jetbrains.kotlin:kotlin-stdlib:1.8.22"
 
-    // Интеграция React Native 0.73
-    implementation "com.facebook.react:react-android:0.73.0"
-    implementation jscFlavor
-
     // GSON для парсинга JSON
     implementation "com.google.code.gson:gson:2.10.1"
 
@@ -70,7 +56,6 @@ dependencies {
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
     
     // ===== ВОЗВРАЩЕННЫЕ БИБЛИОТЕКИ ML KIT ДЛЯ OCR =====
-    // Вернуть нативные модули распознавания текста
     implementation "com.google.mlkit:text-recognition:16.0.0"
     implementation "com.google.mlkit:text-recognition-chinese:16.0.0"
 
