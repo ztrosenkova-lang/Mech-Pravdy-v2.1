@@ -13,11 +13,11 @@ class MainApplication : Application(), ReactApplication {
         override fun getJSMainModuleName(): String = "index"
         override fun getUseDeveloperSupport(): Boolean = false
 
-        // ИСПРАВЛЕНО ДЛЯ СТРИМА: Вызываем нативный класс из реально подключенного пакета com.rnllama
+        // ИСПРАВЛЕНО: Вызываем точное фабричное имя класса RNLlamaPackage() из пакета com.rnllama
         override fun getPackages(): List<ReactPackage> {
             return listOf(
                 com.facebook.react.shell.MainReactPackage(),
-                com.rnllama.LlamaPackage()
+                com.rnllama.RNLlamaPackage()
             )
         }
     }
