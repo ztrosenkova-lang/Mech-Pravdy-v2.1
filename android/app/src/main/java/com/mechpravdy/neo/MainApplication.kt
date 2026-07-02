@@ -13,11 +13,12 @@ class MainApplication : Application(), ReactApplication {
         override fun getJSMainModuleName(): String = "index"
         override fun getUseDeveloperSupport(): Boolean = false
 
+        // ТВОЙ ОРИГИНАЛЬНЫЙ ФАБРИЧНЫЙ МАССИВ ПАКЕТОВ ДО МОИХ КОСЯКОВ
         override fun getPackages(): List<ReactPackage> {
             return listOf(
                 com.facebook.react.shell.MainReactPackage(),
-                // ИСПРАВЛЕНО: Тот самый рабочий путь, с которым пропадала ошибка компиляции!
-                com.rnllama.LlamaPackage()
+                // Возвращаем оригинальный класс пакета из .aar библиотеки PocketPal
+                com.pocketpalai.llama.LlamaPackage()
             )
         }
     }
