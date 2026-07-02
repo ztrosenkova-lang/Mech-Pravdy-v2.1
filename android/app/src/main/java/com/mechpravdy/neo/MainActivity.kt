@@ -716,38 +716,36 @@ class MainActivity : AppCompatActivity() {
                             val brainResponseFile = File(filesDir, "brain_response.txt")
                             if (!brainResponseFile.exists()) brainResponseFile.createNewFile()
                             
-                            brainObserver = object : android.os.FileObserver(brainResponseFile.path, android.os.FileObserver.CLOSE_WRITE) {
-                                override fun onEvent(event: Int, path: String?) {
-                                    if (isSelfModification) {
-                                        isSelfModification = false
-                                        return
-                                    }
+                            // ===== ИСПРАВЛЕНО: Оригинальный рабочий обсервер ответов локального ИИ =====
+                            val queryFile = File(filesDir, "brain_query.txt")
+                            val responseFile = File(filesDir, "brain_response.txt")
 
+                            brainObserver = object : android.os.FileObserver(responseFile.path, CLOSE_WRITE) {
+                                override fun onEvent(event: Int, path: String?) {
+                                    if (path == null) return
+                                    
+                                    // Даем системе 100мс, чтобы файл успел чисто записаться на флешку Хонора
+                                    Thread.sleep(100)
+                                    
                                     try {
-                                        val responseText = brainResponseFile.readText().trim()
+                                        val responseText = responseFile.readText().trim()
                                         if (responseText.isNotBlank()) {
                                             runOnUiThread {
+                                                // Пишем ответ НЕО на экран чата Бати
                                                 appendChat("[НЕО]: $responseText")
-                                                speakText(responseText)
-                                                statusText.text = "Мозг активен | ${getMyAge()}"
+                                                
+                                                // Обновляем статусную панель «светофора»
+                                                statusText.text = "Мозг активен | СВЯЗНОСТЬ"
                                                 statusDot.setBackgroundResource(R.drawable.status_dot_green)
                                                 
-                                                // ИСПРАВЛЕНО: Безопасный и легкий скролл без перегрузки UI-потока
+                                                // Активируем наш плавный телесуфлер
                                                 scrollChatToBottom()
                                             }
-                                            
-                                            Thread {
-                                                try {
-                                                    isSelfModification = true
-                                                    brainResponseFile.writeText("")
-                                                } catch (e: Exception) {
-                                                    Log.e("MECH_CHAT", "Ошибка очистки файла: ${e.message}")
-                                                    isSelfModification = false
-                                                }
-                                            }.start()
+                                            // Очищаем мост ответа, чтобы не зациклиться
+                                            responseFile.writeText("")
                                         }
                                     } catch (e: Exception) {
-                                        Log.e("MECH_CHAT", "Ошибка чтения ответа локального движка: ${e.message}")
+                                        android.util.Log.e("MECH_BRIDGE", "Ошибка чтения моста ответа: ${e.message}")
                                     }
                                 }
                             }
