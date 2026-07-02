@@ -13,19 +13,21 @@ class MainApplication : Application(), ReactApplication {
         override fun getJSMainModuleName(): String = "index"
         override fun getUseDeveloperSupport(): Boolean = false
 
-        // ИСПРАВЛЕНО: возвращаем фабричный путь пакета библиотеки rnllama
+        // ИСПРАВЛЕНО: Прямой вызов фабричного класса без импортов в шапке файла!
         override fun getPackages(): List<ReactPackage> {
             return listOf(
                 com.facebook.react.shell.MainReactPackage(),
-                com.rnllama.LlamaPackage()
+                com.pocketpalai.llama.LlamaPackage()
             )
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        // Инициализируем загрузчик нативных С++ библиотек
         SoLoader.init(this, false)
         try {
+            // Разворачиваем С++ таблицы рантайма в памяти процесса
             reactNativeHost.reactInstanceManager.createReactContextInBackground()
             android.util.Log.d("MECH_SYSTEM", "🚀 Нативный С++ мост JNI успешно развернут.")
         } catch (e: Exception) {
