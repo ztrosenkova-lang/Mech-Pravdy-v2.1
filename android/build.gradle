@@ -31,14 +31,29 @@ subprojects {
     afterEvaluate { project ->
         if (project.hasProperty("android")) {
             project.android {
-                // ИСПРАВЛЕНО: Чистый Groovy-синтаксис проверки пустой строки вместо Kotlin-методов!
                 if (namespace == null) {
                     namespace = (project.group && project.group.toString().trim() != "") ? project.group.toString() : "com.rnllama"
                 }
-                
-                // Активируем генерацию полей BuildConfig для всех библиотек
                 buildFeatures {
                     buildConfig = true
+                }
+            }
+            
+            // ЖЕСТКИЙ ХУК: Автоматически вырезает запрещенный "package" из манифеста PocketPal перед сборкой!
+            if (project.name == "pocketpalai_llama.rn" || project.name.contains("llama")) {
+                project.tasks.matching { it.name.startsWith("process") && it.name.contains("Manifest") }.all { task ->
+                    task.doFirst {
+                        def manifestFile = file("${project.projectDir}/src/main/AndroidManifest.xml")
+                        if (manifestFile.exists()) {
+                            def content = manifestFile.getText("UTF-8")
+                            if (content.contains("package=")) {
+                                // Полностью вырезаем декларацию package из XML структуры
+                                content = content.replaceAll(/package="[^"]*"/, "")
+                                manifestFile.write(content, "UTF-8")
+                                logger.quiet("🚀 [СИСТЕМА]: Запрещенный атрибут package успешно удален из манифеста подпроекта!")
+                            }
+                        }
+                    }
                 }
             }
         }
