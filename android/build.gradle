@@ -25,3 +25,16 @@ allprojects {
         maven { url 'https://jitpack.io' }
     }
 }
+
+// СТРОГО В САМЫЙ КОНЕЦ КОРНЕВОГО ФАЙЛА:
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            project.android {
+                buildFeatures {
+                    buildConfig = true
+                }
+            }
+        }
+    }
+}
