@@ -2,49 +2,56 @@ package com.mechpravdy.neo
 
 import android.content.Context
 import android.util.Log
-import io.github.ljcamargo.llamacppkt.LlamaModel
 
 object LlamaJNI {
     private const val TAG = "MECH_LAMA_NATIVE"
-    private var nativeModel: LlamaModel? = null
     var isPredicting = false
+    private var contextPtr: Long = 0L
 
-    fun isModelLoaded(): Boolean = nativeModel != null
+    init {
+        try {
+            // Загружаем нативную С++ сошку, которую Gradle нашел в кэше!
+            System.loadLibrary("rnllama")
+            Log.d(TAG, "🚀 С++ ядро librnllama успешно загружено напрямую в память!")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "❌ Ошибка загрузки С++ библиотеки: ${e.message}")
+        }
+    }
+
+    fun isModelLoaded(): Boolean = contextPtr != 0L
 
     fun unloadModel() {
-        try {
-            nativeModel?.close()
-        } catch (_: Exception) {}
-        nativeModel = null
-        Log.d(TAG, "♻ Нативная С++ модель полностью выгружена из ОЗУ.")
+        if (contextPtr != 0L) {
+            try {
+                freeContext(contextPtr)
+                Log.d(TAG, "♻ Контекст модели очищен.")
+            } catch (_: Exception) {}
+            contextPtr = 0L
+        }
     }
 
     fun loadModel(androidContext: Context, modelPath: String, contextSize: Int): Boolean {
         try {
-            unloadModel() // Принудительно чистим ОЗУ перед новой загрузкой
-            Log.d(TAG, "Загрузка весов через чистый C++: $modelPath")
+            unloadModel()
+            Log.d(TAG, "Прямой JNI запуск инференса для: $modelPath")
             
-            // Жесткий нативный запуск модели в один вызов, без зависающих JS-колбэков!
-            nativeModel = LlamaModel(modelPath, contextSize)
-            return nativeModel != null
+            // Вызываем нативный метод PocketPal напрямую из ядра
+            contextPtr = initContext(modelPath, contextSize, contextSize, false, false, false, 0, 0f, 0f, false, "", "", "", "", "", "", "", "")
+            
+            return contextPtr != 0L
         } catch (e: Throwable) {
-            Log.e(TAG, "Критический сбой загрузки нативного ядра llama.cpp: ${e.message}")
+            Log.e(TAG, "Критический сбой JNI: ${e.message}")
             return false
         }
     }
 
     fun generate(prompt: String): String {
-        val model = nativeModel ?: return "(Ошибка: Нативный Мозг не загружен)"
+        if (contextPtr == 0L) return "(Ошибка: Нативный Мозг не инициализирован)"
         isPredicting = true
         return try {
-            val responseBuilder = java.lang.StringBuilder()
-            
-            // Нативная потоковая генерация токенов напрямую в Kotlin
-            model.generate(prompt).forEach { token ->
-                responseBuilder.append(token)
-            }
-            
-            responseBuilder.toString().trim()
+            // Прямой синхронный вызов генерации токенов из C++
+            val response = tokenizeAndPredict(contextPtr, prompt, 0, 0, 0f, 0f, 0f, 0f, "")
+            response ?: "(Внутренняя ошибка ядра)"
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка инференса: ${e.message}")
             "(Ошибка вычислений)"
@@ -52,4 +59,18 @@ object LlamaJNI {
             isPredicting = false
         }
     }
+
+    // Объявляем внешние JNI-методы, которые физически зашиты в librnllama.so
+    private native fun initContext(
+        modelPath: String, nCtx: Int, nBatch: Int, embeddings: Boolean, Roanoke: Boolean, f16Kv: Boolean,
+        nGpuLayers: Int, ropeFreqBase: Float, ropeFreqScale: Float, newlinePsplit: Boolean,
+        lora: String, loraBase: String, dLora: String, dLoraBase: String, loraType: String,
+        cType: String, chatTemplate: String, userAlias: String
+    ): Long
+
+    private native fun tokenizeAndPredict(
+        contextPtr: Long, prompt: String, nPredict: Int, topK: Int, topP: Float, temp: Float, penalty: Float, repeat: Float, stop: String
+    ): String?
+
+    private native fun freeContext(contextPtr: Long)
 }
