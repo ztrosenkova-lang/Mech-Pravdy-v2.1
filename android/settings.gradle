@@ -29,7 +29,3 @@ apply from: new File(settingsDir, "../node_modules/@react-native-community/cli-p
 // Нативно монтируем локальный плагин фреймворка из node_modules прямо в граф сборки.
 // Это решает проблему Could not find, заменяя удаленные сетевые запросы локальным исходником!
 includeBuild('../node_modules/@react-native/gradle-plugin')
-
-// СТРОГО В КОНЕЦ ФАЙЛА:
-include ':@pocketpalai_llama.rn'
-project(':@pocketpalai_llama.rn').projectDir = new File(rootProject.projectDir, '../node_modules/@pocketpalai/llama.rn/android')
