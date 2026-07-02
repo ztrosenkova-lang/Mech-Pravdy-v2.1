@@ -776,13 +776,6 @@ class MainActivity : AppCompatActivity() {
 
             requestAllPermissions()
         } catch (e: Exception) { Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() }
-
-        // ===== ПРИНУДИТЕЛЬНЫЙ СТАРТ REACT-КОНТЕКСТА =====
-        try {
-            val reactNativeHost = (application as com.facebook.react.ReactApplication).reactNativeHost
-            reactNativeHost.reactInstanceManager.createReactContextInBackground()
-        } catch (e: Exception) { Log.e("MECH_SYSTEM", "${e.message}") }
-        // ===== КОНЕЦ БЛОКА =====
     }
 
     // ===== МЕТОД НЕЙТРАЛЬНОГО РЕЖИМА =====
