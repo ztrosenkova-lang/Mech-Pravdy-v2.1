@@ -13,11 +13,11 @@ class MainApplication : Application(), ReactApplication {
         override fun getJSMainModuleName(): String = "index"
         override fun getUseDeveloperSupport(): Boolean = false
 
-        // ТВОЙ ОРИГИНАЛЬНЫЙ ФАБРИЧНЫЙ МАССИВ ПАКЕТОВ ДО МОИХ КОСЯКОВ
+        // БЕЗОПАСНЫЙ МАССИВ ПАКЕТОВ: Без импортов в шапке файла!
         override fun getPackages(): List<ReactPackage> {
             return listOf(
                 com.facebook.react.shell.MainReactPackage(),
-                // Возвращаем оригинальный класс пакета из .aar библиотеки PocketPal
+                // ЖЕСТКИЙ ПРЯМОЙ ВЫЗОВ КЛАССА ИЗ ОРИГИНАЛЬНОГО ОДОБРЕННОГО ПАКЕТА
                 com.pocketpalai.llama.LlamaPackage()
             )
         }
