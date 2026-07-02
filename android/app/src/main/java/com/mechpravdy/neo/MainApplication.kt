@@ -1,10 +1,11 @@
 package com.mechpravdy.neo
 
 import android.app.Application
+import android.util.Log
 
 class MainApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        android.util.Log.d("MECH_SYSTEM", "🚀 Чистый нативный старт приложения.")
+        Log.d("MECH_SYSTEM", "🚀 Чистый нативный старт экосистемы Меч Правды.")
     }
 }
